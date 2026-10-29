@@ -147,6 +147,14 @@ export class WorkshopScene {
   private lastFpsUpdate = 0
   private fpsElement: HTMLElement | null = null
 
+  // Frame throttling: full frame rate while the user interacts or the camera
+  // moves, IDLE_FPS otherwise. The scene never fully stops (stations bob,
+  // particles drift), so without this it renders at the display rate forever.
+  private static readonly IDLE_FPS = 30
+  private static readonly ACTIVE_WINDOW_MS = 2000
+  private lastInteractionTime = 0
+  private lastFrameTime = 0
+
   // Click pulse effects (ring expands, hex fades)
   private clickPulses: Array<{
     mesh: THREE.Mesh | THREE.Line
@@ -271,6 +279,8 @@ export class WorkshopScene {
     this.controls.addEventListener('start', () => {
       this.cameraAnimating = false
     })
+    // Fires on input and while damping settles
+    this.controls.addEventListener('change', this.markInteraction)
 
     // Setup
     this.setupLighting()
@@ -321,7 +331,13 @@ export class WorkshopScene {
     this.renderer.domElement.addEventListener('mouseleave', this.handleHoverLeave)
   }
 
+  /** Keep rendering at full frame rate for a moment after user input */
+  private markInteraction = (): void => {
+    this.lastInteractionTime = performance.now()
+  }
+
   private handleHover = (event: MouseEvent): void => {
+    this.markInteraction()
     if (!this.hoverHighlight || !this.worldFloor) return
 
     const rect = this.renderer.domElement.getBoundingClientRect()
@@ -2360,14 +2376,22 @@ export class WorkshopScene {
   start(): void {
     this.fpsElement = document.getElementById('fps')
 
+    // Small tolerance so vsync jitter doesn't make us skip an extra frame
+    const idleFrameInterval = 1000 / WorkshopScene.IDLE_FPS - 4
+
     const animate = () => {
       this.animationId = requestAnimationFrame(animate)
+
+      const now = performance.now()
+      const active = this.cameraAnimating ||
+        now - this.lastInteractionTime < WorkshopScene.ACTIVE_WINDOW_MS
+      if (!active && now - this.lastFrameTime < idleFrameInterval) return
+      this.lastFrameTime = now
 
       const delta = this.clock.getDelta()
 
       // FPS counter
       this.frameCount++
-      const now = performance.now()
       if (now - this.lastFpsUpdate >= 1000) {
         if (this.fpsElement) {
           this.fpsElement.textContent = `${this.frameCount} FPS`
