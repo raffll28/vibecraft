@@ -12,7 +12,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { WebSocketServer, WebSocket, RawData } from 'ws'
 import { watch } from 'chokidar'
-import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, unlinkSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, unlinkSync, statSync, openSync, readSync, closeSync } from 'fs'
 import { exec, execFile } from 'child_process'
 import { dirname, resolve, join, extname } from 'path'
 import { hostname } from 'os'
@@ -265,8 +265,9 @@ const pendingToolUses = new Map<string, PreToolUseEvent>()
 /** Connected WebSocket clients */
 const clients = new Set<WebSocket>()
 
-/** Last read position in file */
-let lastFileSize = 0
+/** Byte offset of the events file already read, and any trailing partial line */
+let eventsFileOffset = 0
+let eventsFileRemainder = ''
 
 /** Token tracking per session */
 interface SessionTokens {
@@ -1348,6 +1349,12 @@ function addEvent(event: ClaudeEvent) {
 // File Watching
 // ============================================================================
 
+/**
+ * Compact the events file once it grows past this size. The hook appends
+ * forever, so without compaction the log (and startup time) grows unbounded.
+ */
+const EVENTS_FILE_COMPACT_BYTES = 10 * 1024 * 1024
+
 function loadEventsFromFile() {
   if (!existsSync(EVENTS_FILE)) {
     debug(`Events file not found: ${EVENTS_FILE}`)
@@ -1355,7 +1362,9 @@ function loadEventsFromFile() {
   }
 
   const content = readFileSync(EVENTS_FILE, 'utf-8')
-  const lines = content.trim().split('\n').filter(Boolean)
+  const allLines = content.split('\n').filter(Boolean)
+  // Only the most recent events are kept in memory, so only parse those
+  const lines = allLines.slice(-MAX_EVENTS)
 
   for (const line of lines) {
     try {
@@ -1367,8 +1376,50 @@ function loadEventsFromFile() {
     }
   }
 
-  lastFileSize = content.length
+  if (Buffer.byteLength(content) > EVENTS_FILE_COMPACT_BYTES) {
+    const kept = lines.join('\n') + '\n'
+    writeFileSync(EVENTS_FILE, kept)
+    log(`Compacted events file: kept last ${lines.length} of ${allLines.length} events`)
+  }
+
+  eventsFileOffset = statSync(EVENTS_FILE).size
   log(`Loaded ${events.length} events from file`)
+}
+
+/** Read only the bytes appended since the last read */
+function readNewEvents() {
+  const size = statSync(EVENTS_FILE).size
+  if (size < eventsFileOffset) {
+    // File was truncated or replaced - start over
+    eventsFileOffset = 0
+    eventsFileRemainder = ''
+  }
+  if (size === eventsFileOffset) return
+
+  const fd = openSync(EVENTS_FILE, 'r')
+  try {
+    const buffer = Buffer.alloc(size - eventsFileOffset)
+    readSync(fd, buffer, 0, buffer.length, eventsFileOffset)
+    eventsFileOffset = size
+
+    // Keep a trailing partial line for the next read
+    const chunk = eventsFileRemainder + buffer.toString('utf-8')
+    const newLines = chunk.split('\n')
+    eventsFileRemainder = newLines.pop() ?? ''
+
+    for (const line of newLines) {
+      if (!line) continue
+      try {
+        const event = JSON.parse(line) as ClaudeEvent
+        addEvent(event)
+        debug(`New event from file: ${event.type}`)
+      } catch (e) {
+        debug(`Failed to parse new event: ${line}`)
+      }
+    }
+  } finally {
+    closeSync(fd)
+  }
 }
 
 function watchEventsFile() {
@@ -1383,33 +1434,18 @@ function watchEventsFile() {
     appendFileSync(EVENTS_FILE, '')
   }
 
+  // The hook also POSTs each event to /event, which is the real-time path.
+  // The file watch is a fallback (e.g. server restarted mid-session), so a
+  // relaxed poll interval is enough.
   const watcher = watch(EVENTS_FILE, {
     persistent: true,
     usePolling: true,
-    interval: 100,
+    interval: 1000,
   })
 
   watcher.on('change', () => {
     try {
-      const content = readFileSync(EVENTS_FILE, 'utf-8')
-
-      // Only process new content
-      if (content.length > lastFileSize) {
-        const newContent = content.slice(lastFileSize)
-        const newLines = newContent.trim().split('\n').filter(Boolean)
-
-        for (const line of newLines) {
-          try {
-            const event = JSON.parse(line) as ClaudeEvent
-            addEvent(event)
-            debug(`New event from file: ${event.type}`)
-          } catch (e) {
-            debug(`Failed to parse new event: ${line}`)
-          }
-        }
-
-        lastFileSize = content.length
-      }
+      readNewEvents()
     } catch (e) {
       debug(`Error reading events file: ${e}`)
     }
