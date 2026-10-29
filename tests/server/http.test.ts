@@ -202,6 +202,19 @@ describe('server: static files', () => {
     assert.equal((await rawGet(server, '/..%2f..%2fpackage.json')).status, 403)
   })
 
+  it('serves the SPA for a directory instead of crashing', async () => {
+    const res = await rawGet(server, '/assets')
+    assert.equal(res.status, 200)
+    assert.equal(res.body, indexHtml())
+    assert.equal((await getJson(server, '/health')).status, 200)
+  })
+
+  it('serves real files with their MIME type', async () => {
+    const res = await rawGet(server, '/index.html')
+    assert.equal(res.status, 200)
+    assert.equal(res.type, 'text/html')
+  })
+
   it('400s invalid URL encoding', async () => {
     assert.equal((await rawGet(server, '/%E0%A4%A')).status, 400)
   })

@@ -43,6 +43,14 @@ describe('server: POST /event', () => {
     assert.deepEqual(await sendJson(server, 'POST', '/event', '{nope'), { status: 400, body: { error: 'Invalid JSON' } })
   })
 
+  it('rejects JSON that is not an event object with 400', async () => {
+    server = await startServer(env)
+    for (const body of ['5', '"x"', 'null', '[1,2]']) {
+      assert.deepEqual(await sendJson(server, 'POST', '/event', body), { status: 400, body: { error: 'Invalid JSON' } }, body)
+    }
+    assert.equal((await getJson(server, '/health')).body.events, 0)
+  })
+
   it('rejects bodies over 1 MiB with 413', async () => {
     server = await startServer(env)
     const res = await sendJson(server, 'POST', '/event', makeEvent({ prompt: 'z'.repeat(1024 * 1024 + 10) }))

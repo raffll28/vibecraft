@@ -1250,6 +1250,9 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
     collectRequestBody(req).then(body => {
       try {
         const event = JSON.parse(body) as ClaudeEvent
+        if (typeof event !== 'object' || event === null || Array.isArray(event)) {
+          throw new Error('Event must be a JSON object')
+        }
         addEvent(event)
         debug(`Received event via HTTP: ${event.type}`)
         res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -1933,8 +1936,8 @@ function serveStaticFile(req: IncomingMessage, res: ServerResponse): void {
     return
   }
 
-  // Check if file exists
-  if (!existsSync(filePath)) {
+  // Check if file exists (directories too: reading one would throw and crash the server)
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
     // For SPA, serve index.html for non-API routes
     const indexPath = join(distDir, 'index.html')
     if (existsSync(indexPath) && !decodedPath.startsWith('/api')) {
