@@ -93,7 +93,9 @@ events_dir="${EVENTS_FILE%/*}"
 # Read Input
 # =============================================================================
 
-input=$(</dev/stdin)
+# cat, not $(</dev/stdin): Node gives hooks a socket for stdin, and opening
+# /dev/stdin on a socket fails on Linux (ENXIO), which left input empty.
+input=$(cat)
 
 # Generate timestamp (ms) and a unique ID suffix
 if [ -n "$EPOCHREALTIME" ]; then
