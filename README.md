@@ -1,133 +1,86 @@
 # Vibecraft
 
-![Vibecraft Screenshot](public/og-image.png)
+![Vibecraft monitoring three Claude Code sessions](public/monitor.png)
 
-Manage Claude Code in style!
+A 3D status monitor for the Claude Code sessions running in your terminals.
 
-**[Try it instantly at vibecraft.sh](https://vibecraft.sh)** — still connects to your local Claude Code instances!
+Each session gets a hexagonal zone named after its directory, with a robot
+that walks to a workstation for every tool Claude uses (bookshelf for Read,
+terminal for Bash, desk for Write...). A light next to the name tells you at a
+glance what each session needs:
 
-**New:**
-- **Animations** — What's Claude up to? Watch him! ◕ ‿ ◕
+| Light | Meaning | When |
+|---|---|---|
+| 🟢 Green | Free | Claude finished, or is waiting for your next prompt |
+| 🟡 Yellow | Busy | Processing a prompt or running tools |
+| 🔴 Red | Needs you | A permission prompt, a dialog, or a question from Claude (pulses until answered) |
 
-Vibecraft uses your own local Claude Code instances — no files or prompts are shared.
+Several sessions in the same directory are told apart as `name`, `name (2)`,
+`name (3)`... Zones disappear when their session ends.
 
-![Three.js](https://img.shields.io/badge/Three.js-black?logo=threedotjs) ![TypeScript](https://img.shields.io/badge/TypeScript-blue?logo=typescript&logoColor=white) ![npm](https://img.shields.io/npm/v/vibecraft)
+Everything stays on your machine: a Claude Code hook records events, a local
+server streams them to the page, and nothing is sent anywhere else.
 
 ## Requirements
 
-- **macOS or Linux** (Windows not supported - hooks require bash)
-- **Node.js** 18+
-- **jq** - for hook scripts (`brew install jq` / `apt install jq`)
-- **tmux** - for session management (`brew install tmux` / `apt install tmux`)
+- Linux (macOS should work but is untested)
+- [Rust](https://rustup.rs) to build the hook and the server
+- Node.js only to build the frontend and run the tests
 
-## Quick Start
-
-```bash
-# 1. Install dependencies
-brew install jq tmux       # macOS
-# sudo apt install jq tmux  # Ubuntu/Debian
-
-# 2. Configure hooks (one time)
-npx vibecraft setup
-
-# 3. Start server
-npx vibecraft
-```
-
-Open http://localhost:4003 and use Claude Code normally. You'll see Claude move around the workshop as it uses tools.
-
-**From source:**
-```bash
-git clone https://github.com/nearcyan/vibecraft
-cd vibecraft && npm install && npm run dev
-# Opens on http://localhost:4002
-```
-
-**To uninstall:** `npx vibecraft uninstall` (removes hooks, keeps your data)
-
-## Browser Control (Optional)
-
-Run Claude in tmux to send prompts from browser:
+## Setup
 
 ```bash
-tmux new -s claude
-claude
+npm install && npm run build                    # frontend (dist/) + Rust binaries
+rust/target/release/vibecraft-server setup      # install the hook into ~/.claude/settings.json
+rust/target/release/vibecraft-server            # start the server
 ```
 
-Then use the input field in the visualization with "Send to tmux" checked.
+Open http://localhost:4003 and use Claude Code in your terminals as usual.
+Sessions already running pick up the hook after a restart.
 
-## Stations
+`vibecraft-server uninstall` removes the hook (your data in `~/.vibecraft/data` is kept).
 
-| Station | Tools | Details |
-|---------|-------|---------|
-| Bookshelf | Read | Books on shelves |
-| Desk | Write | Paper, pencil, ink pot |
-| Workbench | Edit | Wrench, gears, bolts |
-| Terminal | Bash | Glowing screen |
-| Scanner | Grep, Glob | Telescope with lens |
-| Antenna | WebFetch, WebSearch | Satellite dish |
-| Portal | Task (subagents) | Glowing ring portal |
-| Taskboard | TodoWrite | Board with sticky notes |
-
-## Features
-
-- **Floating context labels** - See file paths and commands above active stations
-- **Thought bubbles** - Claude shows thinking animation while processing
-- **Response capture** - Claude's responses appear in the activity feed
-- **Subagent visualization** - Mini-Claudes spawn at portal for parallel tasks
-- **Cancel button** - Send Ctrl+C to interrupt Claude
-- **Split-screen layout** - 60% 3D scene (Workshop), 40% activity feed
-- **Attention system** - Zones pulse when sessions need input or finish
-- **Draw mode** - Paint hex tiles with colors, 3D stacking, and text labels (press `D`)
-- **Text labels** - Add multi-line labels to hex tiles with custom modal
-- **Zone context menus** - Right-click zones for Info (`I`) or quick Command (`C`) input
-- **Station panels** - Toggle with `P` to see recent tool history per workstation
-- **Context-aware animations** - Claude celebrates commits, shakes head on errors
-
-## Multi-clauding
-
-![Multi-clauding](public/multiclaude.png)
-
-Run multiple Claude instances and direct work to each:
-
-1. Click **"+ New"** (or `Alt+N`) to spawn a new session
-2. Configure name, directory, and flags (`-r`, `--chrome`, `--dangerously-skip-permissions`)
-3. Click a session or press `1-6` (or `Alt+1-6` in inputs) to select it
-4. Send prompts to whichever Claude you want
-
-Each session runs in its own tmux, with status tracking (idle/working/offline).
-
-See [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) for the full API and architecture.
-
-## Keyboard Shortcuts
+## Keyboard
 
 | Key | Action |
-|-----|--------|
-| `Tab` / `Esc` | Switch focus between Workshop and Feed |
-| `1-6` | Switch to session (extended: QWERTY, ASDFGH, ZXCVBN) |
-| `0` / `` ` `` | All sessions / overview |
-| `Alt+N` | New session |
-| `F` | Toggle follow mode |
-| `P` | Toggle station panels |
-| `D` | Toggle draw mode |
+|---|---|
+| `1`-`9` | Focus a zone |
+| `0` / `` ` `` | Overview of all zones |
+| `F` | Follow the active session |
+| `P` | Station panels (last tools per workstation) |
+| `D` | Draw mode: paint the floor (`1-6` colors, `0` eraser, `Q/E` brush, `R` 3D stack, `X` clear) |
+| `Alt+D` | Animation test panel |
 
-**Draw mode:** `1-6` colors, `0` eraser, `Q/E` brush size, `R` 3D stack, `X` clear
+Click a zone to focus it, right-click it to dismiss it, and click the floor to
+add a text label.
 
-## CLI Options
+## Configuration
+
+Environment variables of `vibecraft-server`, all optional:
+
+| Variable | Default | |
+|---|---|---|
+| `VIBECRAFT_PORT` | 4003 | HTTP and WebSocket port |
+| `VIBECRAFT_HOST` | 127.0.0.1 | Bind address (keep it local: events carry your prompts) |
+| `VIBECRAFT_EVENTS_FILE` | `~/.vibecraft/data/events.jsonl` | Event log written by the hook |
+| `VIBECRAFT_TILES_FILE` | `~/.vibecraft/data/tiles.json` | Floor text labels |
+| `VIBECRAFT_MAX_EVENTS` | 1000 | Events kept in memory |
+| `VIBECRAFT_DIST_DIR` | `dist/` next to the repo | Built frontend |
+
+## Development
 
 ```bash
-vibecraft [options]
-
-Options:
-  --port, -p <port>    WebSocket server port (default: 4003)
-  --help, -h           Show help
-  --version, -v        Show version
+npm run dev       # frontend with hot reload on :4002 (proxies to the server on :4003)
+npm test          # build, Rust tests, then the contract tests
+npm run bench     # hook latency and server throughput
 ```
 
-See [docs/SETUP.md](docs/SETUP.md) for detailed setup guide.
-See [CLAUDE.md](CLAUDE.md) for technical documentation.
+See [CLAUDE.md](CLAUDE.md) for the architecture and
+[docs/RUST_MIGRATION.md](docs/RUST_MIGRATION.md) for how this fork got here.
 
-Website: https://vibecraft.sh
+## Credits
+
+Fork of [vibecraft](https://github.com/nearcyan/vibecraft) by nearcyan.
 
 ## License
 

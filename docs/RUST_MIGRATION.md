@@ -4,6 +4,11 @@ Objetivo: medir quanto o vibecraft melhora quando partes dele são reescritas
 em Rust, trocando uma peça de cada vez e provando a cada passo, com a mesma
 bateria de testes, que nada quebrou.
 
+> **Este documento é o histórico.** As fases 0–4 citam código que já foi
+> removido na fase 5 (o servidor Node em `server/`, o hook em bash, o CLI
+> `bin/cli.js`, o fuzzing diferencial TS × Rust). Para o estado atual, veja o
+> [README](../README.md) e o [CLAUDE.md](../CLAUDE.md).
+
 ## Regras do jogo
 
 1. **Os testes descrevem o comportamento, não a implementação.** Hook e servidor
@@ -20,19 +25,16 @@ bateria de testes, que nada quebrou.
 4. **Uma peça por vez, sempre funcionando.** Nenhuma fase deixa o projeto
    quebrado; a versão antiga só sai quando a nova passa em tudo.
 
-## Comandos
+## Comandos (estado atual)
 
 | Comando | O que faz |
 |---|---|
-| `npm test` | Build + todos os testes (unit, hook, servidor) |
-| `npm run test:unit` | Funções puras (`server/tmuxParsing.ts`, `server/validation.ts`) |
-| `npm run test:hook` | Contrato do hook (bash) |
-| `npm run test:hook:native` | Contrato do hook, contra o binário Rust |
-| `npm run test:rust` | Testes dos crates Rust (`cargo test`) |
+| `npm test` | Build + `cargo test` + todos os testes de contrato e unitários |
+| `npm run test:hook` | Contrato do hook (contra o binário Rust) |
 | `npm run test:server` | Contrato do servidor (HTTP + WebSocket + arquivo de eventos) |
-| `npm run test:diff [casos] [seed]` | Fuzzing diferencial: TypeScript × Rust em entradas aleatórias |
+| `npm run test:unit` | Regra do semáforo das zonas |
+| `npm run test:rust` | Testes dos crates Rust (`cargo test`) |
 | `npm run bench` | Benchmarks do hook e do servidor |
-| `npm run bench:core` | Custo por chamada dos parsers: TypeScript × Rust |
 
 Os testes rodam com `HOME` temporário: nunca tocam o `~/.vibecraft/` real.
 
@@ -281,6 +283,35 @@ dezenas de crates).
 | Dependências de runtime (npm) | 5 | 3 (`chokidar`, `three`, `ws`) |
 | `node_modules` | 141 MiB | 107 MiB |
 | Bundle do frontend | 998 KB | 734 KB |
+
+## Fase 5: só monitor, sem Node em runtime (concluída)
+
+O uso real é monitorar as sessões abertas no terminal, então tudo que existia
+para criar e conduzir sessões pelo navegador saiu:
+
+- **Frontend:** sem painel lateral (feed, lista de sessões, prompt), sem
+  criação de zonas, sem os modais de sessão, pergunta, permissão, info e
+  comando. Cada zona leva o nome da pasta (`nome (2)` para repetidas) e um
+  semáforo: verde livre, amarelo ocupado, vermelho precisa de você
+  (`src/events/zoneStatus.ts`). `main.ts` foi de 2897 para 1025 linhas.
+- **Servidor Rust:** sem sessões gerenciadas, tmux, git status, projetos,
+  `/prompt`, `/stats` e `/info`. Ficaram eventos, WebSocket, rótulos do
+  chão, `/config` e `/health`. Os clientes só recebem. Binário: 683 → 573 KiB.
+- **Node só como ferramenta de desenvolvimento:** removidos o servidor Node,
+  o CLI `bin/cli.js` (o `setup`/`uninstall` agora é
+  `vibecraft-server setup`, que preserva a ordem das chaves do
+  `settings.json` e registra também o `PreCompact`), o hook em bash e os
+  scripts de instalação. Os testes de contrato rodam contra os binários
+  Rust; os fixtures JSON continuam nos testes do Rust.
+- **Analytics:** removido o script do Amplitude, que mandava cliques e
+  formulários para a conta do projeto original.
+
+| | Antes da fase 5 | Depois |
+|---|---|---|
+| Dependências de runtime (npm) | 3 | 0 (`three` vai no bundle) |
+| `node_modules` (só desenvolvimento) | 107 MiB | 82 MiB |
+| Bundle do frontend | 734 KB | 656 KB |
+| Servidor Rust | 683 KiB | 573 KiB |
 
 ## Fora do escopo (por enquanto)
 
