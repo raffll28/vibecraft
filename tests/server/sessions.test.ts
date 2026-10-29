@@ -401,4 +401,10 @@ describe('server: projects', () => {
     assert.deepEqual(await sendJson(server, 'DELETE', `/projects/${encodeURIComponent(project)}`), { status: 200, body: { ok: true } })
     assert.deepEqual((await getJson(server, '/projects')).body.projects, [])
   })
+
+  it('rejects a malformed project path instead of crashing', async () => {
+    server = await startServer(env)
+    assert.deepEqual(await sendJson(server, 'DELETE', '/projects/%E0%A4%A'), { status: 400, body: { ok: false, error: 'Invalid path' } })
+    assert.equal((await getJson(server, '/health')).status, 200)
+  })
 })
