@@ -26,11 +26,14 @@ export interface GitStatusUpdate {
 export class GitStatusManager {
   private statusCache = new Map<string, GitStatus>()
   private directories = new Map<string, string>() // sessionId -> directory
+  private dirty = new Set<string>() // sessionIds that may have changed since last poll
+  private pollCount = 0
   private pollInterval: NodeJS.Timeout | null = null
   private onUpdate: ((update: GitStatusUpdate) => void) | null = null
 
   // Configuration
-  private readonly POLL_INTERVAL_MS = 5000 // Poll every 5 seconds
+  private readonly POLL_INTERVAL_MS = 5000 // Poll dirty sessions every 5 seconds
+  private readonly FULL_POLL_EVERY = 12     // Poll everything every 12 polls (~1 min)
   private readonly EXEC_TIMEOUT_MS = 5000  // Timeout for git commands
 
   constructor() {}
@@ -57,6 +60,16 @@ export class GitStatusManager {
   untrack(sessionId: string): void {
     this.directories.delete(sessionId)
     this.statusCache.delete(sessionId)
+    this.dirty.delete(sessionId)
+  }
+
+  /**
+   * Flag a session for the next poll (e.g. after a tool that may touch files).
+   * Each poll runs ~6 git commands, so clean sessions are only re-checked on
+   * the slow full poll, which catches changes made outside Claude.
+   */
+  markDirty(sessionId: string): void {
+    if (this.directories.has(sessionId)) this.dirty.add(sessionId)
   }
 
   /**
@@ -107,10 +120,15 @@ export class GitStatusManager {
   }
 
   /**
-   * Poll all tracked directories
+   * Poll dirty directories, or all of them on every FULL_POLL_EVERY-th poll
    */
   private async pollAll(): Promise<void> {
-    const promises = Array.from(this.directories.entries()).map(
+    const full = this.pollCount++ % this.FULL_POLL_EVERY === 0
+    const entries = Array.from(this.directories.entries())
+      .filter(([sessionId]) => full || this.dirty.has(sessionId))
+    this.dirty.clear()
+
+    const promises = entries.map(
       ([sessionId, directory]) => this.fetchStatus(sessionId, directory)
     )
     await Promise.all(promises)
