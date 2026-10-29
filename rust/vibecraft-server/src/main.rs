@@ -4,12 +4,14 @@
 //! shared state behind a mutex, one writer thread per WebSocket client fed
 //! by a channel, and inotify on the events file instead of polling.
 //!
-//! Still in Node only (phase 3 continues): managed tmux sessions, permission
-//! and token polling, git status, projects autocomplete, voice.
+//! Still in Node only: voice transcription (Deepgram).
 
+mod git;
 mod http;
 mod inotify;
+mod projects;
 mod routes;
+mod sessions;
 mod sha1;
 mod state;
 mod ws;
@@ -27,9 +29,7 @@ use serde_json::{Value, json};
 use vibecraft_core::validation::is_origin_allowed;
 
 use crate::http::{ReadError, read_request};
-use crate::state::{
-    CLIENT_QUEUE_FRAMES, Client, Config, Frame, Shared, State, load_sessions, load_tiles, lock,
-};
+use crate::state::{CLIENT_QUEUE_FRAMES, Client, Config, Frame, Shared, State, lock};
 
 const MAX_BODY_SIZE: usize = 1024 * 1024;
 /// Compact the events file at startup once it grows past this
@@ -41,11 +41,8 @@ const EXTERNAL_SESSION_MAX_AGE_MS: u64 = 30 * 60 * 1000;
 
 fn main() {
     let config = Arc::new(Config::from_env());
-    let mut state = State::new(config.max_events);
-
+    let mut state = State::new(config.clone());
     load_events(&config, &mut state);
-    state.sessions = load_sessions(&config.sessions_file);
-    state.tiles = load_tiles(&config.tiles_file);
     let shared: Shared = Arc::new(Mutex::new(state));
 
     {
@@ -64,6 +61,8 @@ fn main() {
         "[vibecraft] Server running on {}:{}",
         config.host, config.port
     );
+    // Like the Node server: tmux polling and health checks start once listening
+    sessions::start(&shared);
 
     for stream in listener.incoming().flatten() {
         let (shared, config) = (shared.clone(), config.clone());
@@ -305,7 +304,14 @@ fn handle_client_message(text: &str, client: &Client, shared: &Shared) {
             "type": "voice_error",
             "payload": { "error": "Voice input not configured" },
         })),
-        // ping, subscribe, voice_stop, permission_response (sessions not ported yet)
+        Some("permission_response") => {
+            let payload = message.get("payload");
+            let field = |k: &str| payload.and_then(|p| p.get(k)).and_then(Value::as_str);
+            if let (Some(id), Some(response)) = (field("sessionId"), field("response")) {
+                sessions::send_permission_response(shared, id, response);
+            }
+        }
+        // ping, subscribe, voice_stop
         _ => {}
     }
 }

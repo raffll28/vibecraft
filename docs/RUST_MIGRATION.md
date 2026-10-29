@@ -234,12 +234,34 @@ empatavam em ~5 mil req/s, o limite era o cliente.
 - `/health` reporta `version: "unknown"`, como o Node compilado. Uma versão
   real ligaria a checagem de atualização contra o repositório original.
 
-### 3b. Sessões e tmux (próximo)
+### 3b. Sessões e tmux (concluído)
 
-Sessões gerenciadas (`POST/PATCH/DELETE /sessions`, prompt, cancel,
-restart, link), polling de permissões e tokens, git status, autocomplete e
-remoção de projetos, `permission_response`. Antes de portar: escrever os
-testes de contrato dessas rotas, agora possível com o tmux instalado.
+Sessões gerenciadas (criar no tmux, renomear, apagar, prompt, cancel,
+restart, link), status a partir dos eventos, polling de prompts de
+permissão e tokens (e o aceite automático do aviso de bypass), health check,
+timeout de "working", git status, autocomplete e remoção de projetos,
+`permission_response` pelo WebSocket.
+
+**Testes primeiro.** `tests/server/sessions.test.ts` (21 testes) foi escrito e
+validado contra o Node antes do Rust existir. Cada teste usa um servidor tmux
+próprio (`TMUX_TMPDIR` no HOME temporário, sem a variável `TMUX`, que faria
+os comandos irem para o tmux do usuário) e um `claude` falso
+(`tests/fixtures/fake-claude.mjs`) primeiro no PATH: ele imprime prompts de
+permissão, o aviso de bypass e contadores de tokens sob comando, e registra
+o que recebe (argumentos, texto, Ctrl+C, a tecla escolhida no prompt).
+
+Os testes acharam três bugs no Node, corrigidos:
+- autocomplete de `~/...` listava a partir da raiz do disco
+  (`resolve(home, '/code/')` descarta o home);
+- o git status contava a mudança não staged do primeiro arquivo como staged
+  (`trim()` apagava o espaço inicial de `" M arquivo"`, que é a coluna staged);
+- `DELETE /projects/<caminho malformado>` derrubava o servidor
+  (`decodeURIComponent` fora de qualquer `try`).
+
+**No Rust:** os 21 testes passaram de primeira, e os 66 testes de contrato do
+servidor (45 + 21) passam nos dois. tmux e git nunca rodam com o lock do
+estado preso: lê-se o necessário, solta-se o lock, roda o comando, e trava de
+novo para aplicar o resultado.
 
 ### 3c. Voz (Deepgram), por último
 

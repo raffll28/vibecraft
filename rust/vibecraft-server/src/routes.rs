@@ -3,14 +3,14 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value, json};
 use vibecraft_core::validation::{is_origin_allowed, resolve, validate_tmux_session};
 
 use crate::http::{Body, Request, Response};
-use crate::state::{Config, Shared, load_projects, lock, save_json};
+use crate::sessions;
+use crate::state::{Config, Shared, lock, save_json};
 
 pub fn now_ms() -> u64 {
     SystemTime::now()
@@ -113,18 +113,54 @@ fn route(req: &Request, shared: &Shared, config: &Config) -> Response {
         }
         ("GET", "/sessions") => {
             let state = lock(shared);
-            Response::json(200, &json!({ "ok": true, "sessions": state.sessions }))
+            Response::json(
+                200,
+                &json!({ "ok": true, "sessions": state.sessions_payload() }),
+            )
         }
-        ("GET", "/projects") => Response::json(
-            200,
-            &json!({ "ok": true, "projects": load_projects(&config.projects_file) }),
-        ),
+        ("POST", "/sessions/refresh") => {
+            // The health check runs in the background; answer with what's known now
+            let s = shared.clone();
+            std::thread::spawn(move || sessions::check_health(&s));
+            let state = lock(shared);
+            Response::json(
+                200,
+                &json!({ "ok": true, "sessions": state.sessions_payload() }),
+            )
+        }
+        ("POST", "/sessions") => sessions::create(shared, &req.body),
+        ("GET", "/projects") => {
+            let state = lock(shared);
+            Response::json(
+                200,
+                &json!({ "ok": true, "projects": state.projects_sorted() }),
+            )
+        }
         ("GET", "/tiles") => {
             let state = lock(shared);
             Response::json(200, &json!({ "ok": true, "tiles": state.tiles }))
         }
         ("POST", "/tiles") => post_tile(req, shared, config),
+        _ if method == "GET" && url.starts_with("/projects/autocomplete") => {
+            let query = query_param(url, "q").unwrap_or_default();
+            let results = lock(shared).autocomplete(&query);
+            Response::json(200, &json!({ "ok": true, "results": results }))
+        }
+        _ if method == "DELETE" && url.starts_with("/projects/") => {
+            match decode_uri_component(&url["/projects/".len()..]) {
+                Some(path) => {
+                    lock(shared).remove_project(&path);
+                    Response::json(200, &json!({ "ok": true }))
+                }
+                None => Response::json(400, &json!({ "ok": false, "error": "Invalid path" })),
+            }
+        }
         _ => {
+            if let Some((id, action)) = sessions::parse_path(url)
+                && let Some(res) = sessions::route(shared, method, id, action, &req.body)
+            {
+                return res;
+            }
             // JS: /^\/tiles\/([^/?]+)/
             if let Some(id) = url
                 .strip_prefix("/tiles/")
@@ -185,7 +221,9 @@ fn stats(shared: &Shared) -> Response {
             "totalEvents": state.events.len(),
             "toolCounts": counts,
             "avgDurations": avg,
-            "tokens": {},
+            "tokens": state.tokens.iter()
+                .map(|(name, t)| (name.clone(), json!({ "current": t.last_seen, "cumulative": t.cumulative })))
+                .collect::<Map<String, Value>>(),
         }),
     )
 }
@@ -229,7 +267,7 @@ fn post_prompt(req: &Request, config: &Config) -> Response {
     }
 }
 
-fn is_truthy(v: &Value) -> bool {
+pub fn is_truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,
@@ -240,27 +278,10 @@ fn is_truthy(v: &Value) -> bool {
 }
 
 /// PATH with the usual user/Homebrew locations, like EXEC_OPTIONS in Node
-fn exec_path() -> String {
+pub fn exec_path() -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     let path = std::env::var("PATH").unwrap_or_default();
     format!("{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:{path}")
-}
-
-fn tmux(args: &[&str]) -> Result<(), String> {
-    let output = Command::new("tmux")
-        .args(args)
-        .env("PATH", exec_path())
-        .output()
-        .map_err(|e| e.to_string())?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "Command failed: tmux {}\n{}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
 }
 
 /// Paste text into a tmux session via a buffer (never through a shell)
@@ -274,10 +295,10 @@ pub fn send_to_tmux(session: &str, text: &str) -> Result<(), String> {
     fs::write(&temp, text).map_err(|e| e.to_string())?;
     let temp_str = temp.to_string_lossy().to_string();
     let result = (|| {
-        tmux(&["load-buffer", &temp_str])?;
-        tmux(&["paste-buffer", "-t", session])?;
+        sessions::tmux(&["load-buffer", &temp_str])?;
+        sessions::tmux(&["paste-buffer", "-t", session])?;
         std::thread::sleep(Duration::from_millis(100));
-        tmux(&["send-keys", "-t", session, "Enter"])
+        sessions::tmux(&["send-keys", "-t", session, "Enter"]).map(|_| ())
     })();
     let _ = fs::remove_file(&temp);
     result
@@ -299,7 +320,7 @@ fn random_hex(len: usize) -> String {
 }
 
 /// RFC 4122 version 4 UUID, like crypto.randomUUID()
-fn uuid_v4() -> String {
+pub fn uuid_v4() -> String {
     let mut b = random_bytes::<16>();
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
@@ -393,6 +414,44 @@ fn tile_by_id(req: &Request, id: &str, shared: &Shared, config: &Config) -> Resp
     }
 }
 
+/// URLSearchParams.get: the first value for `name` in the query string
+/// ('+' is a space; malformed escapes stay as they are)
+fn query_param(url: &str, name: &str) -> Option<String> {
+    let decode = |s: &str| {
+        let bytes = s.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            let escaped = (bytes[i] == b'%')
+                .then(|| {
+                    s.get(i + 1..i + 3)
+                        .and_then(|h| u8::from_str_radix(h, 16).ok())
+                })
+                .flatten();
+            match (bytes[i], escaped) {
+                (_, Some(byte)) => {
+                    out.push(byte);
+                    i += 3;
+                }
+                (b'+', None) => {
+                    out.push(b' ');
+                    i += 1;
+                }
+                (b, None) => {
+                    out.push(b);
+                    i += 1;
+                }
+            }
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    };
+    let query = url.split_once('?')?.1;
+    query.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        (decode(key) == name).then(|| decode(value))
+    })
+}
+
 /// decodeURIComponent: strict %XX decoding into valid UTF-8
 fn decode_uri_component(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
@@ -472,6 +531,16 @@ mod tests {
         assert_eq!(decode_uri_component("/%E0%A4%A"), None);
         assert_eq!(decode_uri_component("/%C3"), None);
         assert_eq!(decode_uri_component("/%zz"), None);
+    }
+
+    #[test]
+    fn query_params_like_url_search_params() {
+        assert_eq!(query_param("/p?q=~%2Fcode%2F", "q"), Some("~/code/".into()));
+        assert_eq!(query_param("/p?a=1&q=a+b", "q"), Some("a b".into()));
+        assert_eq!(query_param("/p?q=%zz%4", "q"), Some("%zz%4".into()));
+        assert_eq!(query_param("/p?q", "q"), Some("".into()));
+        assert_eq!(query_param("/p?x=1", "q"), None);
+        assert_eq!(query_param("/p", "q"), None);
     }
 
     #[test]
