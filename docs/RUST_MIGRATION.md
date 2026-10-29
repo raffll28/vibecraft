@@ -30,7 +30,9 @@ bateria de testes, que nada quebrou.
 | `npm run test:hook:native` | Contrato do hook, contra o binário Rust |
 | `npm run test:rust` | Testes dos crates Rust (`cargo test`) |
 | `npm run test:server` | Contrato do servidor (HTTP + WebSocket + arquivo de eventos) |
+| `npm run test:diff [casos] [seed]` | Fuzzing diferencial: TypeScript × Rust em entradas aleatórias |
 | `npm run bench` | Benchmarks do hook e do servidor |
+| `npm run bench:core` | Custo por chamada dos parsers: TypeScript × Rust |
 
 Os testes rodam com `HOME` temporário: nunca tocam o `~/.vibecraft/` real.
 
@@ -125,13 +127,52 @@ de gravar no transcript o texto que precede a ferramenta, então não há texto
 depois da última mensagem `user` (o `tool_result` anterior). Nos 138 eventos
 do bash numa sessão real, todos vieram vazios.
 
-## Fase 2: núcleo puro em Rust
+## Fase 2: núcleo puro em Rust (concluída)
 
-- Crate `rust/vibecraft-core`: `tmuxParsing`, `validation`, processamento de
-  eventos (duração pre→post, dedupe, histórico).
-- Testes do Rust leem `tests/fixtures/*.json`.
-- Antes de portar, extrair do `server/index.ts` o que ainda falta modularizar
-  (estado das sessões, tiles, histórico), sempre com os testes verdes.
+**2a. Extração no TypeScript.** O log de eventos (dedupe, duração pre→post,
+limite de memória, histórico) saiu do `server/index.ts` para
+`server/eventStore.ts`, e a quebra de linhas do `events.jsonl` virou
+`LineSplitter`. Dois bugs apareceram na extração, cada um com um teste de
+contrato que falhava antes da correção:
+- eventos carregados no startup não eram marcados como vistos, e um POST
+  posterior do mesmo evento contava duas vezes;
+- os bytes eram decodificados antes de quebrar as linhas, e uma leitura que
+  cortasse um caractere multibyte ao meio corrompia o evento.
+
+**2b. Crate `rust/vibecraft-core`.** `event_store` (com `LineSplitter`),
+`tmux_parsing` e `validation`. Só depende de `serde_json`: os regex do
+TypeScript foram reescritos à mão, seguindo a semântica do JavaScript
+(`\s` do JS ≠ `is_whitespace`, `/i` só dobra ASCII, `.` não casa `\r`, ordem
+das alternativas), documentada em `src/js.rs`.
+
+**Validação**
+- Os testes do crate leem os mesmos `tests/fixtures/*.json` do TypeScript
+  (9 grupos), mais 5 testes de casos de borda.
+- Fuzzing diferencial (`tests/differential/core.diff.ts` + o oráculo
+  `examples/oracle.rs`): entradas aleatórias com caracteres perigosos e
+  prompts/contadores bem formados com mutações (linhas removidas, duplicadas,
+  trocadas, espaços Unicode, `\r`, `\u2028`). Mais de 700 mil comparações em
+  vários seeds, 0 diferenças; cerca de 40% dos prompts e 35% dos contadores
+  gerados são detectados, então os caminhos difíceis são exercitados.
+- Diferença intencional: `is_origin_allowed` rejeita formas exóticas que o
+  `new URL` do Node aceita (`http://user@localhost`, `http:/localhost`,
+  `http://127.1`). Mais estrito é a direção segura numa allowlist, e
+  navegadores sempre mandam a origem canônica. O fuzzer aceita só essa
+  direção de diferença.
+
+**Resultado** (`npm run bench:core`, capturas de ~100 linhas, metade com prompt)
+
+| Função | TypeScript | Rust | Ganho |
+|---|---|---|---|
+| `parseTokensFromOutput` | 4.7 µs | 0.30 µs | 16× |
+| `detectPermissionPrompt` | 3.9 µs | 1.1 µs | 3.4× |
+
+O detector chegou a 3.4× com duas otimizações guiadas por medição: busca
+case-insensitive sem alocação, e uma saída rápida (um memchr por `?` nas
+últimas 30 linhas, já que toda pergunta termina em `?`), que levou as
+capturas sem prompt de 1.2 µs para 0.36 µs. Parei aqui: essas funções rodam
+a cada 1–5 s, então mesmo a versão TypeScript custa microssegundos por
+segundo de uso. O ganho real virá no servidor (Fase 3).
 
 ## Fase 3: servidor em Rust, rota por rota
 
