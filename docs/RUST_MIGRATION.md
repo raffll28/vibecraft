@@ -26,7 +26,9 @@ bateria de testes, que nada quebrou.
 |---|---|
 | `npm test` | Build + todos os testes (unit, hook, servidor) |
 | `npm run test:unit` | Funções puras (`server/tmuxParsing.ts`, `server/validation.ts`) |
-| `npm run test:hook` | Contrato do hook |
+| `npm run test:hook` | Contrato do hook (bash) |
+| `npm run test:hook:native` | Contrato do hook, contra o binário Rust |
+| `npm run test:rust` | Testes dos crates Rust (`cargo test`) |
 | `npm run test:server` | Contrato do servidor (HTTP + WebSocket + arquivo de eventos) |
 | `npm run bench` | Benchmarks do hook e do servidor |
 
@@ -47,14 +49,18 @@ cada uso de ferramenta chama o hook duas vezes, pre e post):
 
 | Evento | p50 | p95 |
 |---|---|---|
-| PreToolUse | 13.6 ms | 14.5 ms |
-| PostToolUse | 13.5 ms | 14.9 ms |
-| Stop | 17.4 ms | 18.1 ms |
-| UserPromptSubmit | 13.8 ms | 14.4 ms |
-| *Piso: processo vazio (`sh` + `cat`)* | *3.9 ms* | *4.1 ms* |
+| PreToolUse | 13.5 ms | 14.1 ms |
+| PostToolUse | 11.9 ms | 12.4 ms |
+| Stop | 14.9 ms | 15.5 ms |
+| UserPromptSubmit | 11.3 ms | 11.9 ms |
+| *Referência: `sh` + `cat` (processo quase vazio)* | *3.9 ms* | *4.2 ms* |
 
-Ou seja: ~10 ms de trabalho real do bash + jq por chamada, ~20 ms por uso de
-ferramenta.
+Ou seja: ~11–15 ms por chamada, ~25 ms por uso de ferramenta.
+
+> A primeira medição (13.6 / 13.5 / 17.4 / 13.8 ms) estava inflada: o
+> benchmark relia o arquivo de eventos inteiro a cada execução, e ele crescia
+> durante a medição. Corrigido em `bench/hook.bench.ts`; os números acima são
+> da versão corrigida.
 
 **Servidor** (1000 eventos no disco, 5 clientes WebSocket):
 
@@ -70,18 +76,54 @@ O 1 s do arquivo vem do chokidar em modo polling (`interval: 1000`). Na prática
 hook também faz POST, então os eventos chegam em <1 ms; o arquivo é o caminho
 de reserva.
 
-## Fase 1: hook em Rust
+## Fase 1: hook em Rust (concluída)
 
-O alvo com mais ganho e menos risco: é um processo curto, chamado de forma
-síncrona em toda ferramenta, e hoje gasta ~10 ms em bash + jq.
+Crate `rust/vibecraft-hook`: substitui bash + jq + curl por um binário de
+400 KiB que só depende da libc. Dependências de compilação: `serde_json`
+(e 4 crates pequenas que ele puxa: `serde_core`, `itoa`, `memchr`, `zmij`).
 
-- Crate `rust/vibecraft-hook`: binário único, sem dependências em runtime.
-- Precisa passar nos 23 testes de `tests/hook/` com `VIBECRAFT_HOOK_CMD`.
-- Ler só o final do transcript (seek a partir do fim, como `tail`).
-- Notificar o servidor sem bloquear (hoje: `curl &`).
-- `vibecraft setup` instala o binário quando existir e cai no script bash
-  quando não existir.
-- Meta: chegar perto do piso de ~4 ms.
+```bash
+cd rust && cargo build --release   # gera rust/target/release/vibecraft-hook
+npx vibecraft setup                # instala o binário se existir, senão o .sh
+```
+
+**Validação**
+- Os 23 testes de contrato de `tests/hook/` passam com
+  `VIBECRAFT_HOOK_CMD=rust/target/release/vibecraft-hook`.
+- 8 testes do próprio crate (`cargo test`): `tail`, truncamento por caractere,
+  semântica de erro do jq.
+- Teste diferencial com dados reais: 47 transcripts de sessões do Claude Code ×
+  3 tipos de evento, bash e Rust lado a lado: 141 comparações, 0 diferenças.
+
+**Resultado** (p50, 300 execuções por caso)
+
+| Evento | bash + jq | Rust | Ganho |
+|---|---|---|---|
+| PreToolUse | 13.5 ms | 2.0 ms | 6.7× |
+| PostToolUse | 11.9 ms | 2.0 ms | 5.8× |
+| Stop | 14.9 ms | 2.8 ms | 5.3× |
+| UserPromptSubmit | 11.3 ms | 2.0 ms | 5.6× |
+
+Com notificação a um servidor de verdade (`BENCH_NOTIFY_URL`): bash
+11.2–15.1 ms, Rust 2.2–3.0 ms. O Rust espera a resposta do servidor (o bash
+fazia `curl &`), e isso custa ~0.2 ms no loopback. Com o servidor parado, a
+conexão é recusada na hora; com ele travado, o custo máximo é de 250 ms
+(conexão) + 500 ms (resposta).
+
+Por uso de ferramenta (pre + post): de ~25 ms para ~4 ms.
+
+**Diferenças em relação ao bash (intencionais)**
+- Entrada vazia não grava mais uma linha em branco no `events.jsonl`.
+- O caminho do transcript é lido do JSON já decodificado (o bash usava uma
+  regex no texto bruto, que falharia com caracteres escapados).
+- A ordem das chaves no JSON gerado é alfabética (o `serde_json` sem
+  `preserve_order`). Nenhum consumidor depende da ordem.
+
+**Limitação que já existia (bash e Rust iguais):** o `assistantText` do
+`pre_tool_use` sai vazio na prática. O Claude Code dispara o PreToolUse antes
+de gravar no transcript o texto que precede a ferramenta, então não há texto
+depois da última mensagem `user` (o `tool_result` anterior). Nos 138 eventos
+do bash numa sessão real, todos vieram vazios.
 
 ## Fase 2: núcleo puro em Rust
 

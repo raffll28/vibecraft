@@ -40,6 +40,8 @@
     "test": "npm run build && node --test 'tests/**/*.test.ts'",
     "test:unit": "node --test 'tests/unit/*.test.ts'",
     "test:hook": "node --test 'tests/hook/*.test.ts'",
+    "test:hook:native": "cargo build --release --manifest-path rust/Cargo.toml && VIBECRAFT_HOOK_CMD=rust/target/release/vibecraft-hook node --test 'tests/hook/*.test.ts'",
+    "test:rust": "cargo test --release --manifest-path rust/Cargo.toml",
     "test:server": "npm run build:server && node --test 'tests/server/*.test.ts'",
     "bench": "npm run build:server && node bench/hook.bench.ts && node bench/server.bench.ts",
     "prepack": "npm run build",

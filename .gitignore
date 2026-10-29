@@ -36,3 +36,6 @@ npm-debug.log*
 bin/vibecraft
 scripts/test-*.sh
 todo.txt
+
+# Rust build output
+rust/target/

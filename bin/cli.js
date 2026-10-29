@@ -33,6 +33,12 @@ const ROOT = resolve(__dirname, '..')
 // Health Checks
 // ============================================================================
 
+/** Path to the built Rust hook, or null if it hasn't been built */
+function findNativeHook() {
+  const path = resolve(ROOT, 'rust/target/release/vibecraft-hook')
+  return existsSync(path) ? path : null
+}
+
 function checkJq() {
   try {
     execSync('which jq', { stdio: 'ignore' })
@@ -83,7 +89,9 @@ function printHealthCheck() {
 
   let warnings = []
 
-  if (!jqOk) {
+  // Only the bash hook needs jq
+  const nativeInstalled = existsSync(join(homedir(), '.vibecraft', 'hooks', 'vibecraft-hook'))
+  if (!jqOk && !nativeInstalled) {
     warnings.push(`  [!] jq not found - hooks won't work without it
       Install: brew install jq (macOS) or apt install jq (Linux)`)
   }
@@ -142,13 +150,13 @@ GitHub:  https://github.com/nearcyan/vibecraft
 
 // Hook path command
 if (args.includes('--hook-path')) {
-  console.log(resolve(ROOT, 'hooks/vibecraft-hook.sh'))
+  console.log(findNativeHook() ?? resolve(ROOT, 'hooks/vibecraft-hook.sh'))
   process.exit(0)
 }
 
 // Setup command
 if (args[0] === 'setup') {
-  const { writeFileSync, copyFileSync, chmodSync } = await import('fs')
+  const { writeFileSync, copyFileSync, chmodSync, renameSync } = await import('fs')
 
   console.log('Setting up vibecraft hooks...\n')
 
@@ -186,9 +194,12 @@ if (args[0] === 'setup') {
   // Step 2: Install hook script to ~/.vibecraft/hooks/
   // ==========================================================================
 
+  // Prefer the native Rust hook when it has been built (cargo build --release
+  // in rust/): same events, ~6x faster, and no jq or curl needed
+  const nativeHook = findNativeHook()
   const vibecraftHooksDir = join(homedir(), '.vibecraft', 'hooks')
-  const installedHookPath = join(vibecraftHooksDir, 'vibecraft-hook.sh')
-  const sourceHookPath = resolve(ROOT, 'hooks/vibecraft-hook.sh')
+  const installedHookPath = join(vibecraftHooksDir, nativeHook ? 'vibecraft-hook' : 'vibecraft-hook.sh')
+  const sourceHookPath = nativeHook ?? resolve(ROOT, 'hooks/vibecraft-hook.sh')
 
   // Ensure hooks directory exists
   if (!existsSync(vibecraftHooksDir)) {
@@ -204,9 +215,12 @@ if (args[0] === 'setup') {
   }
 
   try {
-    copyFileSync(sourceHookPath, installedHookPath)
-    chmodSync(installedHookPath, 0o755) // Make executable
-    console.log(`Installed hook: ${installedHookPath}`)
+    // Copy then rename: overwriting a binary in place fails while a hook runs it
+    const tempPath = `${installedHookPath}.tmp-${process.pid}`
+    copyFileSync(sourceHookPath, tempPath)
+    chmodSync(tempPath, 0o755) // Make executable
+    renameSync(tempPath, installedHookPath)
+    console.log(`Installed ${nativeHook ? 'native (Rust)' : 'bash'} hook: ${installedHookPath}`)
   } catch (e) {
     console.error(`ERROR: Failed to install hook script: ${e.message}`)
     process.exit(1)
@@ -311,7 +325,7 @@ if (args[0] === 'setup') {
   // Check dependencies
   let hasWarnings = false
 
-  if (!checkJq()) {
+  if (!nativeHook && !checkJq()) {
     hasWarnings = true
     console.log('\n[!] Warning: jq not found')
     console.log('    Install: brew install jq (macOS) or apt install jq (Linux)')
@@ -449,10 +463,12 @@ if (args[0] === 'uninstall') {
   // Step 3: Remove hook script (but keep data)
   // ==========================================================================
 
-  const hookScript = join(homedir(), '.vibecraft', 'hooks', 'vibecraft-hook.sh')
-  if (existsSync(hookScript)) {
-    rmSync(hookScript)
-    console.log(`Removed: ${hookScript}`)
+  for (const name of ['vibecraft-hook.sh', 'vibecraft-hook']) {
+    const hookFile = join(homedir(), '.vibecraft', 'hooks', name)
+    if (existsSync(hookFile)) {
+      rmSync(hookFile)
+      console.log(`Removed: ${hookFile}`)
+    }
   }
 
   // Remove hooks directory if empty
@@ -509,8 +525,10 @@ if (args[0] === 'doctor') {
     issues.push('Node.js 18+ required')
   }
 
-  // jq
-  if (checkJq()) {
+  // jq (only the bash hook needs it)
+  if (existsSync(join(homedir(), '.vibecraft', 'hooks', 'vibecraft-hook'))) {
+    console.log('  ✓ native hook installed (jq not needed)')
+  } else if (checkJq()) {
     try {
       const jqVersion = execSync('jq --version 2>&1', { encoding: 'utf-8' }).trim()
       console.log(`  ✓ jq (${jqVersion})`)
@@ -549,7 +567,10 @@ if (args[0] === 'doctor') {
   // -------------------------------------------------------------------------
   console.log('\n[2/6] Checking hook script...')
 
-  const hookScript = join(homedir(), '.vibecraft', 'hooks', 'vibecraft-hook.sh')
+  // Native (Rust) hook first, then the bash script
+  const hookScript = ['vibecraft-hook', 'vibecraft-hook.sh']
+    .map(name => join(homedir(), '.vibecraft', 'hooks', name))
+    .find(path => existsSync(path)) ?? join(homedir(), '.vibecraft', 'hooks', 'vibecraft-hook.sh')
   if (existsSync(hookScript)) {
     console.log(`  ✓ Hook script exists: ${hookScript}`)
 

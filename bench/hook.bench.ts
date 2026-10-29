@@ -5,15 +5,21 @@
  * reports wall time per call. Usage:
  *   node bench/hook.bench.ts [runs]
  *   VIBECRAFT_HOOK_CMD=path/to/binary node bench/hook.bench.ts
+ *   BENCH_NOTIFY_URL=http://127.0.0.1:4003/event node bench/hook.bench.ts
+ *     (also POST each event to a running server, as in real use)
  */
 
-import { writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createTestEnv } from '../tests/helpers/env.ts'
 import { HOOK_CMD, runHook } from '../tests/helpers/hook.ts'
 import { summarize, printTable } from './stats.ts'
 
 const RUNS = parseInt(process.argv[2] ?? '200', 10)
+const NOTIFY_URL = process.env.BENCH_NOTIFY_URL
+const hookEnv: Record<string, string> = NOTIFY_URL
+  ? { VIBECRAFT_ENABLE_WS_NOTIFY: 'true', VIBECRAFT_WS_NOTIFY: NOTIFY_URL }
+  : {}
 const env = createTestEnv()
 
 // A transcript like a real session's: alternating prompts, replies and tool calls
@@ -35,15 +41,18 @@ const cases: Record<string, object> = {
 }
 
 console.log(`Hook: ${HOOK_CMD}`)
-console.log(`${RUNS} runs per event type (server notify disabled)\n`)
+console.log(`${RUNS} runs per event type (server notify: ${NOTIFY_URL ?? 'disabled'})\n`)
 
 const rows = []
 for (const [name, input] of Object.entries(cases)) {
-  for (let i = 0; i < 5; i++) await runHook(env, input) // warm up caches
+  for (let i = 0; i < 5; i++) await runHook(env, input, hookEnv) // warm up caches
   const times: number[] = []
   for (let i = 0; i < RUNS; i++) {
+    // runHook re-reads the whole events file, so keep it at one event:
+    // otherwise later cases would time that parsing, not the hook
+    rmSync(env.eventsFile, { force: true })
     const start = performance.now()
-    const result = await runHook(env, input)
+    const result = await runHook(env, input, hookEnv)
     times.push(performance.now() - start)
     if (result.code !== 0) throw new Error(`hook failed: ${result.stderr}`)
   }
