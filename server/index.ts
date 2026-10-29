@@ -39,6 +39,7 @@ import { GitStatusManager } from './GitStatusManager.js'
 import { ProjectsManager } from './ProjectsManager.js'
 import { expandHome, isOriginAllowed, validateDirectoryPath, validateTmuxSession } from './validation.js'
 import { parseTokensFromOutput, detectPermissionPrompt, detectBypassWarning } from './tmuxParsing.js'
+import { EventStore, LineSplitter } from './eventStore.js'
 import { fileURLToPath } from 'url'
 
 // ============================================================================
@@ -186,21 +187,15 @@ async function sendToTmuxSafe(tmuxSession: string, text: string): Promise<void> 
 // State
 // ============================================================================
 
-/** All events in memory */
-const events: ClaudeEvent[] = []
-
-/** Track seen event IDs to prevent duplicates (from file watcher + POST) */
-const seenEventIds = new Set<string>()
-
-/** Track in-flight tool uses for duration calculation */
-const pendingToolUses = new Map<string, PreToolUseEvent>()
+/** All events in memory, with dedupe and tool durations */
+const eventStore = new EventStore(MAX_EVENTS)
 
 /** Connected WebSocket clients */
 const clients = new Set<WebSocket>()
 
 /** Byte offset of the events file already read, and any trailing partial line */
 let eventsFileOffset = 0
-let eventsFileRemainder = ''
+const eventsFileLines = new LineSplitter()
 
 /** Token tracking per session */
 interface SessionTokens {
@@ -1013,52 +1008,15 @@ function findManagedSession(claudeSessionId: string): ManagedSession | undefined
 // Event Processing
 // ============================================================================
 
-function processEvent(event: ClaudeEvent): ClaudeEvent {
-  // Track pre_tool_use for duration calculation
-  if (event.type === 'pre_tool_use') {
-    const preEvent = event as PreToolUseEvent
-    pendingToolUses.set(preEvent.toolUseId, preEvent)
-    debug(`Tracking tool use: ${preEvent.tool} (${preEvent.toolUseId})`)
-  }
-
-  // Calculate duration for post_tool_use
-  if (event.type === 'post_tool_use') {
-    const postEvent = event as PostToolUseEvent
-    const preEvent = pendingToolUses.get(postEvent.toolUseId)
-    if (preEvent) {
-      postEvent.duration = postEvent.timestamp - preEvent.timestamp
-      pendingToolUses.delete(postEvent.toolUseId)
-      debug(`Tool ${postEvent.tool} took ${postEvent.duration}ms`)
-    }
-  }
-
-  return event
-}
-
 /** Tools that can change a repo's git status */
 const GIT_AFFECTING_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'])
 
 function addEvent(event: ClaudeEvent) {
   // Skip duplicates (hook writes to file AND posts to server)
-  if (seenEventIds.has(event.id)) {
+  const processed = eventStore.add(event)
+  if (!processed) {
     debug(`Skipping duplicate event: ${event.id}`)
     return
-  }
-  seenEventIds.add(event.id)
-
-  // Trim old IDs to prevent memory leak (keep last 2x MAX_EVENTS)
-  if (seenEventIds.size > MAX_EVENTS * 2) {
-    const idsToKeep = [...seenEventIds].slice(-MAX_EVENTS)
-    seenEventIds.clear()
-    idsToKeep.forEach(id => seenEventIds.add(id))
-  }
-
-  const processed = processEvent(event)
-  events.push(processed)
-
-  // Trim old events if over limit
-  if (events.length > MAX_EVENTS) {
-    events.splice(0, events.length - MAX_EVENTS)
   }
 
   // Update managed session status based on event
@@ -1132,9 +1090,8 @@ function loadEventsFromFile() {
 
   for (const line of lines) {
     try {
-      const event = JSON.parse(line) as ClaudeEvent
-      processEvent(event)
-      events.push(event)
+      // Marks the id as seen, so a later POST of the same event is ignored
+      eventStore.add(JSON.parse(line) as ClaudeEvent)
     } catch (e) {
       debug(`Failed to parse event line: ${line}`)
     }
@@ -1147,7 +1104,7 @@ function loadEventsFromFile() {
   }
 
   eventsFileOffset = statSync(EVENTS_FILE).size
-  log(`Loaded ${events.length} events from file`)
+  log(`Loaded ${eventStore.events.length} events from file`)
 }
 
 /** Read only the bytes appended since the last read */
@@ -1156,7 +1113,7 @@ function readNewEvents() {
   if (size < eventsFileOffset) {
     // File was truncated or replaced - start over
     eventsFileOffset = 0
-    eventsFileRemainder = ''
+    eventsFileLines.reset()
   }
   if (size === eventsFileOffset) return
 
@@ -1166,13 +1123,7 @@ function readNewEvents() {
     readSync(fd, buffer, 0, buffer.length, eventsFileOffset)
     eventsFileOffset = size
 
-    // Keep a trailing partial line for the next read
-    const chunk = eventsFileRemainder + buffer.toString('utf-8')
-    const newLines = chunk.split('\n')
-    eventsFileRemainder = newLines.pop() ?? ''
-
-    for (const line of newLines) {
-      if (!line) continue
+    for (const line of eventsFileLines.push(buffer)) {
       try {
         const event = JSON.parse(line) as ClaudeEvent
         addEvent(event)
@@ -1239,7 +1190,7 @@ function handleClientMessage(ws: WebSocket, message: ClientMessage) {
 
     case 'get_history': {
       const limit = message.payload?.limit ?? 100
-      const history = events.slice(-limit)
+      const history = eventStore.recent(limit)
       const response: ServerMessage = { type: 'history', payload: history }
       ws.send(JSON.stringify(response))
       debug(`Sent ${history.length} historical events`)
@@ -1322,7 +1273,7 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       ok: true,
       version: VERSION,
       clients: clients.size,
-      events: events.length,
+      events: eventStore.events.length,
       voiceEnabled: !!deepgramApiKey,
     }))
     return
@@ -1346,7 +1297,7 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
     const toolCounts: Record<string, number> = {}
     const toolDurations: Record<string, number[]> = {}
 
-    for (const event of events) {
+    for (const event of eventStore.events) {
       if (event.type === 'post_tool_use') {
         const e = event as PostToolUseEvent
         toolCounts[e.tool] = (toolCounts[e.tool] ?? 0) + 1
@@ -1372,7 +1323,7 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
-      totalEvents: events.length,
+      totalEvents: eventStore.events.length,
       toolCounts,
       avgDurations,
       tokens,
@@ -2059,7 +2010,7 @@ function main() {
     // Send connection confirmation
     const connectMsg: ServerMessage = {
       type: 'connected',
-      payload: { sessionId: events[events.length - 1]?.sessionId ?? 'unknown' },
+      payload: { sessionId: eventStore.lastSessionId() },
     }
     ws.send(JSON.stringify(connectMsg))
 
@@ -2082,12 +2033,12 @@ function main() {
     const activeClaudeSessionIds = new Set(
       Array.from(managedSessions.values())
         .map(s => s.claudeSessionId)
-        .filter(Boolean)
+        .filter((id): id is string => !!id)
     )
-    const externalCutoff = Date.now() - DEFAULTS.EXTERNAL_SESSION_MAX_AGE_MS
-    const filteredHistory = events
-      .filter(e => activeClaudeSessionIds.has(e.sessionId) || e.timestamp >= externalCutoff)
-      .slice(-50)
+    const filteredHistory = eventStore.initialHistory(
+      activeClaudeSessionIds,
+      Date.now() - DEFAULTS.EXTERNAL_SESSION_MAX_AGE_MS,
+    )
     const historyMsg: ServerMessage = {
       type: 'history',
       payload: filteredHistory,

@@ -128,6 +128,28 @@ describe('server: events file', () => {
     client.close()
   })
 
+  it('keeps multibyte characters intact when a write splits them', async () => {
+    server = await startServer(env)
+    const client = await connectClient(server)
+    await client.next('history')
+    const event = makeEvent({ prompt: 'ação 🚀 çã' })
+    const bytes = Buffer.from(JSON.stringify(event) + '\n')
+    const cut = bytes.indexOf(Buffer.from('🚀')) + 2 // in the middle of the emoji
+    appendFileSync(env.eventsFile, bytes.subarray(0, cut))
+    await sleep(1300) // let the server read the first half on its own
+    appendFileSync(env.eventsFile, bytes.subarray(cut))
+    assert.deepEqual((await client.next('event', 5000)).payload, event)
+    client.close()
+  })
+
+  it('ignores a POST of an event already loaded from the file at startup', async () => {
+    const event = makeEvent()
+    seedEventsFile([event])
+    server = await startServer(env)
+    await sendJson(server, 'POST', '/event', event)
+    assert.equal((await getJson(server, '/health')).body.events, 1)
+  })
+
   it('does not double count events seen via both file and HTTP', async () => {
     server = await startServer(env)
     const event = makeEvent()
