@@ -9,6 +9,12 @@ export const DEFAULTS = {
   /** WebSocket/API server port */
   SERVER_PORT: 4003,
 
+  /**
+   * Server bind address. Loopback only by default: the API can drive Claude
+   * sessions via tmux, so it must not be reachable from the network.
+   */
+  SERVER_HOST: '127.0.0.1',
+
   /** Vite dev server port */
   CLIENT_PORT: 4002,
 

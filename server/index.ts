@@ -80,6 +80,7 @@ function expandHome(path: string): string {
 }
 
 const PORT = parseInt(process.env.VIBECRAFT_PORT ?? String(DEFAULTS.SERVER_PORT), 10)
+const HOST = process.env.VIBECRAFT_HOST ?? DEFAULTS.SERVER_HOST
 const EVENTS_FILE = resolve(expandHome(process.env.VIBECRAFT_EVENTS_FILE ?? DEFAULTS.EVENTS_FILE))
 const PENDING_PROMPT_FILE = resolve(expandHome(process.env.VIBECRAFT_PROMPT_FILE ?? '~/.vibecraft/data/pending-prompt.txt'))
 const MAX_EVENTS = parseInt(process.env.VIBECRAFT_MAX_EVENTS ?? String(DEFAULTS.MAX_EVENTS), 10)
@@ -2321,8 +2322,8 @@ function main() {
     })
   })
 
-  httpServer.listen(PORT, () => {
-    log(`Server running on port ${PORT}`)
+  httpServer.listen(PORT, HOST, () => {
+    log(`Server running on ${HOST}:${PORT}`)
     log(``)
     log(`Open https://vibecraft.sh to view your workshop`)
     log(``)
