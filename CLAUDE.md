@@ -483,6 +483,7 @@ Environment variables override the defaults:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `VIBECRAFT_PORT` | 4003 | WebSocket/API server port |
+| `VIBECRAFT_HOST` | 127.0.0.1 | Server bind address (keep loopback; the API can drive Claude) |
 | `VIBECRAFT_CLIENT_PORT` | 4002 | Vite dev server port |
 | `VIBECRAFT_EVENTS_FILE` | ~/.vibecraft/data/events.jsonl | Event log path |
 | `VIBECRAFT_DEBUG` | false | Enable verbose logging |

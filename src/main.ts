@@ -21,6 +21,7 @@ import {
   type PostToolUseEvent,
   type ManagedSession,
 } from '../shared/types'
+import { DEFAULTS } from '../shared/defaults'
 import { soundManager } from './audio'
 
 // Expose for console testing (can remove in production)
@@ -871,6 +872,11 @@ async function deleteTextTile(tileId: string): Promise<void> {
  * Delete a zone (finds the managed session and deletes it)
  */
 async function deleteZoneBySessionId(zoneId: string): Promise<void> {
+  if (externalSessions.has(zoneId)) {
+    removeExternalSession(zoneId)
+    return
+  }
+
   // Find the managed session for this zone
   const managedSession = state.managedSessions.find(
     s => s.claudeSessionId === zoneId
@@ -883,6 +889,29 @@ async function deleteZoneBySessionId(zoneId: string): Promise<void> {
 
   // Use existing delete function
   await deleteManagedSession(managedSession.id)
+}
+
+/**
+ * Remove an external session's zone (local only - nothing to stop on the server)
+ */
+function removeExternalSession(sessionId: string): void {
+  externalSessions.delete(sessionId)
+
+  const sessionState = state.sessions.get(sessionId)
+  if (sessionState) {
+    sessionState.claude.dispose()
+    state.sessions.delete(sessionId)
+  }
+  if (state.scene?.zones.has(sessionId)) {
+    if (state.soundEnabled) {
+      soundManager.play('zone_delete', { zoneId: sessionId })
+    }
+    state.scene.deleteZone(sessionId)
+  }
+  if (state.focusedSessionId === sessionId) {
+    state.focusedSessionId = null
+  }
+  updateSessionList()
 }
 
 function setupContextMenu(): void {
@@ -1187,16 +1216,18 @@ function setupClickToPrompt(): void {
     if (sessionId) {
       // Find the managed session name for display
       const managed = state.managedSessions.find(s => s.claudeSessionId === sessionId)
-      const zoneName = managed?.name || sessionId.slice(0, 8)
+      const zoneName = managed?.name || externalSessions.get(sessionId) || sessionId.slice(0, 8)
 
-      // Show context menu with command, info, and delete options
+      // Show context menu with command, info, and delete options.
+      // External zones are view-only: command and info need a managed session.
+      const dismiss = { key: 'D', label: `Dismiss "${zoneName}"`, action: 'delete', danger: true }
       contextMenu?.show(
         event.clientX,
         event.clientY,
-        [
+        externalSessions.has(sessionId) ? [dismiss] : [
           { key: 'C', label: `Command`, action: 'command' },
           { key: 'I', label: `Info`, action: 'info' },
-          { key: 'D', label: `Dismiss "${zoneName}"`, action: 'delete', danger: true },
+          dismiss,
         ],
         { zoneId: sessionId }
       )
@@ -1343,7 +1374,15 @@ function setupDevPanel(): void {
 /** Map Claude sessionIds to managed session IDs */
 const claudeToManagedLink = new Map<string, string>()
 
-function getOrCreateSession(sessionId: string): SessionState | null {
+/**
+ * External sessions: Claude Code started outside vibecraft (e.g. in a plain
+ * terminal). They get a view-only zone labeled with their directory name.
+ * Maps Claude sessionId → label.
+ */
+const externalSessions = new Map<string, string>()
+
+function getOrCreateSession(event: ClaudeEvent): SessionState | null {
+  const sessionId = event.sessionId
   let session = state.sessions.get(sessionId)
   if (session) return session
 
@@ -1351,18 +1390,22 @@ function getOrCreateSession(sessionId: string): SessionState | null {
     throw new Error('Scene not initialized')
   }
 
-  // Check if this session can be linked to a managed session
-  // Only create zones for sessions that are linked or can be linked
+  // Sessions that can't be linked to a managed session become external zones,
+  // unless the event is stale or the session is ending
   const canLink = canLinkToManagedSession(sessionId)
   if (!canLink) {
-    // Unlinked session - don't create a zone for it
-    console.log(`Ignoring unlinked session ${sessionId.slice(0, 8)} (no matching managed session)`)
-    return null
+    // Events older than this don't create zones (avoids reviving old history)
+    const isRecent = Date.now() - event.timestamp < DEFAULTS.EXTERNAL_SESSION_MAX_AGE_MS
+    if (!isRecent || event.type === 'session_end') {
+      return null
+    }
+    const dirName = event.cwd.split('/').filter(Boolean).pop() || sessionId.slice(0, 8)
+    externalSessions.set(sessionId, dirName)
   }
 
   // Try to link to a recently-created managed session FIRST
   // (so we can get the hint position from it)
-  const linkedManagedSession = tryLinkToManagedSession(sessionId)
+  const linkedManagedSession = canLink ? tryLinkToManagedSession(sessionId) : null
 
   // Look up hint position: first check saved zone position, then pending hints
   let hintPosition: { x: number; z: number } | undefined
@@ -1419,6 +1462,9 @@ function getOrCreateSession(sessionId: string): SessionState | null {
         saveZonePosition(linkedManagedSession.id, hexPos)
       }
     }
+  } else if (externalSessions.has(sessionId)) {
+    state.scene.updateZoneLabel(sessionId, `${externalSessions.get(sessionId)} (external)`)
+    console.log(`Created view-only zone for external session ${sessionId.slice(0, 8)}`)
   }
 
   // Create Claude with matching color, positioned at zone center
@@ -1559,7 +1605,7 @@ function syncZoneLabels(): void {
   const linkedClaudeIds = new Set(
     managedSessions.filter(m => m.claudeSessionId).map(m => m.claudeSessionId)
   )
-  const unlinkedZones = zones.filter(([id]) => !linkedClaudeIds.has(id))
+  const unlinkedZones = zones.filter(([id]) => !linkedClaudeIds.has(id) && !externalSessions.has(id))
 
   // Get managed sessions that don't have a claudeSessionId link
   const unlinkedManaged = managedSessions.filter(m => !m.claudeSessionId)
@@ -1638,6 +1684,12 @@ function updatePromptTarget(sessionId: string, color: number): void {
       <span style="color: ${colorHex}">${escapeHtml(managed.name)}</span>
     `
     targetEl.title = `Prompts will be sent to ${managed.name}`
+  } else if (externalSessions.has(sessionId)) {
+    targetEl.innerHTML = `
+      <span class="target-dot" style="background: ${colorHex}"></span>
+      <span>${escapeHtml(externalSessions.get(sessionId)!)} (view only)</span>
+    `
+    targetEl.title = `External session ${sessionId} - started outside vibecraft, prompts can't be sent to it`
   } else {
     targetEl.innerHTML = `
       <span class="target-dot" style="background: ${colorHex}"></span>
@@ -1747,8 +1799,8 @@ function updateStats() {
 
 function handleEvent(event: ClaudeEvent) {
   // Get or create session for this event
-  // Returns null if the session isn't linked to a managed session
-  const session = getOrCreateSession(event.sessionId)
+  // Returns null if the session has no zone (stale or ending external session)
+  const session = getOrCreateSession(event)
 
   state.eventHistory.push(event)
 
@@ -1891,6 +1943,13 @@ function handleEvent(event: ClaudeEvent) {
     case 'notification':
       // [Sound handled by EventBus: soundHandlers.ts]
       // Could trigger visual notification in 3D scene
+      break
+
+    case 'session_end':
+      // Managed zones live as long as their managed session; external ones end here
+      if (externalSessions.has(event.sessionId)) {
+        removeExternalSession(event.sessionId)
+      }
       break
   }
 }
@@ -2758,14 +2817,15 @@ function init() {
       }
     }
 
-    // Clean up orphaned zones (zones not linked to any managed session)
+    // Clean up orphaned zones (zones not linked to any managed session).
+    // External sessions are never managed, so their zones aren't orphans.
     if (state.scene) {
       const activeClaudeIds = new Set(
         sessions.map(s => s.claudeSessionId).filter(Boolean)
       )
       const zonesToDelete: string[] = []
       for (const [zoneId] of state.scene.zones) {
-        if (!activeClaudeIds.has(zoneId)) {
+        if (!activeClaudeIds.has(zoneId) && !externalSessions.has(zoneId)) {
           zonesToDelete.push(zoneId)
         }
       }

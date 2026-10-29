@@ -9,6 +9,12 @@ export const DEFAULTS = {
   /** WebSocket/API server port */
   SERVER_PORT: 4003,
 
+  /**
+   * Server bind address. Loopback only by default: the API can drive Claude
+   * sessions via tmux, so it must not be reachable from the network.
+   */
+  SERVER_HOST: '127.0.0.1',
+
   /** Vite dev server port */
   CLIENT_PORT: 4002,
 
@@ -31,6 +37,12 @@ export const DEFAULTS = {
 
   /** tmux session name */
   TMUX_SESSION: 'claude',
+
+  /**
+   * External sessions (Claude Code started outside vibecraft) get a view-only
+   * zone while they have events newer than this.
+   */
+  EXTERNAL_SESSION_MAX_AGE_MS: 30 * 60 * 1000,
 } as const
 
 export type Defaults = typeof DEFAULTS

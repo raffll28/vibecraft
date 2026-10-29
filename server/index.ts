@@ -12,7 +12,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { WebSocketServer, WebSocket, RawData } from 'ws'
 import { watch } from 'chokidar'
-import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, unlinkSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, unlinkSync, statSync, openSync, readSync, closeSync } from 'fs'
 import { exec, execFile } from 'child_process'
 import { dirname, resolve, join, extname } from 'path'
 import { hostname } from 'os'
@@ -80,6 +80,7 @@ function expandHome(path: string): string {
 }
 
 const PORT = parseInt(process.env.VIBECRAFT_PORT ?? String(DEFAULTS.SERVER_PORT), 10)
+const HOST = process.env.VIBECRAFT_HOST ?? DEFAULTS.SERVER_HOST
 const EVENTS_FILE = resolve(expandHome(process.env.VIBECRAFT_EVENTS_FILE ?? DEFAULTS.EVENTS_FILE))
 const PENDING_PROMPT_FILE = resolve(expandHome(process.env.VIBECRAFT_PROMPT_FILE ?? '~/.vibecraft/data/pending-prompt.txt'))
 const MAX_EVENTS = parseInt(process.env.VIBECRAFT_MAX_EVENTS ?? String(DEFAULTS.MAX_EVENTS), 10)
@@ -264,8 +265,9 @@ const pendingToolUses = new Map<string, PreToolUseEvent>()
 /** Connected WebSocket clients */
 const clients = new Set<WebSocket>()
 
-/** Last read position in file */
-let lastFileSize = 0
+/** Byte offset of the events file already read, and any trailing partial line */
+let eventsFileOffset = 0
+let eventsFileRemainder = ''
 
 /** Token tracking per session */
 interface SessionTokens {
@@ -276,7 +278,8 @@ interface SessionTokens {
 const sessionTokens = new Map<string, SessionTokens>()
 
 /** Last parsed tmux output (to detect changes) */
-let lastTmuxHash = ''
+/** Tail of the last captured pane per tmux session, to skip unchanged output */
+const lastTmuxTail = new Map<string, string>()
 
 /** Track pending permission prompts per session */
 interface PermissionOption {
@@ -383,81 +386,43 @@ function parseTokensFromOutput(output: string): number | null {
 }
 
 /**
- * Poll tmux output for token counts
+ * Parse captured tmux output for token counts
  */
-function pollTokens(tmuxSession: string): void {
-  try {
-    validateTmuxSession(tmuxSession)
-  } catch {
-    debug(`Invalid tmux session for token polling: ${tmuxSession}`)
-    return
+function handleTokenOutput(tmuxSession: string, stdout: string): void {
+  const tokens = parseTokensFromOutput(stdout)
+  if (tokens === null) return
+
+  // Update session tokens (use TMUX_SESSION as session ID for now)
+  let session = sessionTokens.get(tmuxSession)
+  if (!session) {
+    session = { lastSeen: 0, cumulative: 0, lastUpdate: Date.now() }
+    sessionTokens.set(tmuxSession, session)
   }
 
-  execFile('tmux', ['capture-pane', '-t', tmuxSession, '-p', '-S', '-50'], { ...EXEC_OPTIONS, maxBuffer: 1024 * 1024 }, (error, stdout) => {
-    if (error) {
-      debug(`Token poll failed: ${error.message}`)
-      return
-    }
+  // If we see a higher token count, update cumulative
+  if (tokens > session.lastSeen) {
+    const delta = tokens - session.lastSeen
+    session.cumulative += delta
+    session.lastSeen = tokens
+    session.lastUpdate = Date.now()
 
-    // Simple hash to detect changes
-    const hash = stdout.slice(-500)
-    if (hash === lastTmuxHash) return
-    lastTmuxHash = hash
+    debug(`Tokens updated: ${tokens} (cumulative: ${session.cumulative})`)
 
-    const tokens = parseTokensFromOutput(stdout)
-    if (tokens === null) return
-
-    // Update session tokens (use TMUX_SESSION as session ID for now)
-    let session = sessionTokens.get(tmuxSession)
-    if (!session) {
-      session = { lastSeen: 0, cumulative: 0, lastUpdate: Date.now() }
-      sessionTokens.set(tmuxSession, session)
-    }
-
-    // If we see a higher token count, update cumulative
-    if (tokens > session.lastSeen) {
-      const delta = tokens - session.lastSeen
-      session.cumulative += delta
-      session.lastSeen = tokens
-      session.lastUpdate = Date.now()
-
-      debug(`Tokens updated: ${tokens} (cumulative: ${session.cumulative})`)
-
-      // Broadcast token update
-      broadcast({
-        type: 'tokens',
-        payload: {
-          session: tmuxSession,
-          current: tokens,
-          cumulative: session.cumulative,
-        },
-      } as ServerMessage)
-    } else if (tokens < session.lastSeen && tokens > 0) {
-      // Token count dropped - likely new conversation, reset tracking
-      session.lastSeen = tokens
-      session.lastUpdate = Date.now()
-      debug(`Token count reset detected: ${tokens}`)
-    }
-  })
-}
-
-/**
- * Start polling for tokens
- */
-function startTokenPolling(): void {
-  // Poll every 2 seconds - poll all managed sessions
-  setInterval(() => {
-    for (const session of managedSessions.values()) {
-      if (session.status !== 'offline') {
-        pollTokens(session.tmuxSession)
-      }
-    }
-    // Also poll the default session for backwards compatibility
-    if (!managedSessions.size) {
-      pollTokens(TMUX_SESSION)
-    }
-  }, 2000)
-  log(`Token polling started`)
+    // Broadcast token update
+    broadcast({
+      type: 'tokens',
+      payload: {
+        session: tmuxSession,
+        current: tokens,
+        cumulative: session.cumulative,
+      },
+    } as ServerMessage)
+  } else if (tokens < session.lastSeen && tokens > 0) {
+    // Token count dropped - likely new conversation, reset tracking
+    session.lastSeen = tokens
+    session.lastUpdate = Date.now()
+    debug(`Token count reset detected: ${tokens}`)
+  }
 }
 
 // ============================================================================
@@ -601,104 +566,134 @@ function detectBypassWarning(output: string): boolean {
 }
 
 /**
- * Poll a session for permission prompts
+ * Check captured tmux output for permission prompts
  */
-function pollPermissions(sessionId: string, tmuxSession: string): void {
+function handlePermissionOutput(sessionId: string, tmuxSession: string, stdout: string): void {
+  // Check for bypass permissions warning (first-time use of --dangerously-skip-permissions)
+  if (detectBypassWarning(stdout) && !bypassWarningHandled.has(sessionId)) {
+    log(`Bypass permissions warning detected for session ${sessionId}, auto-accepting...`)
+    bypassWarningHandled.add(sessionId)
+    // Send "2" to accept the warning
+    execFile('tmux', ['send-keys', '-t', tmuxSession, '2'], EXEC_OPTIONS, (err) => {
+      if (err) {
+        log(`Failed to auto-accept bypass warning: ${err.message}`)
+      } else {
+        log(`Bypass permissions warning accepted for session ${sessionId}`)
+      }
+    })
+    return // Don't process further this poll cycle
+  }
+
+  const prompt = detectPermissionPrompt(stdout)
+  const existing = pendingPermissions.get(sessionId)
+
+  if (prompt && !existing) {
+    // New permission prompt detected
+    pendingPermissions.set(sessionId, {
+      tool: prompt.tool,
+      context: prompt.context,
+      options: prompt.options,
+      detectedAt: Date.now(),
+    })
+
+    log(`Permission prompt detected for session ${sessionId}: ${prompt.tool} (${prompt.options.length} options)`)
+
+    // Broadcast to clients with options
+    broadcast({
+      type: 'permission_prompt',
+      payload: {
+        sessionId,
+        tool: prompt.tool,
+        context: prompt.context,
+        options: prompt.options,
+      },
+    } as ServerMessage)
+
+    // Update session status
+    const session = managedSessions.get(sessionId)
+    if (session) {
+      session.status = 'waiting'
+      session.currentTool = prompt.tool
+      broadcastSessions()
+    }
+  } else if (!prompt && existing) {
+    // Permission prompt was resolved (user responded in terminal or elsewhere)
+    pendingPermissions.delete(sessionId)
+    log(`Permission prompt resolved for session ${sessionId}`)
+
+    // Broadcast resolution
+    broadcast({
+      type: 'permission_resolved',
+      payload: { sessionId },
+    } as ServerMessage)
+
+    // Reset session status
+    const session = managedSessions.get(sessionId)
+    if (session && session.status === 'waiting') {
+      session.status = 'working'
+      session.currentTool = undefined
+      broadcastSessions()
+    }
+  }
+}
+
+/** Poll every tick while a session is busy; idle sessions every IDLE_POLL_EVERY ticks */
+const TMUX_POLL_INTERVAL_MS = 1000
+const IDLE_POLL_EVERY = 5
+
+/**
+ * Capture the last 50 lines of a tmux pane.
+ * `changed` is false when the output matches the previous capture.
+ */
+function captureTmuxPane(tmuxSession: string, onOutput: (stdout: string, changed: boolean) => void): void {
   try {
     validateTmuxSession(tmuxSession)
   } catch {
-    debug(`Invalid tmux session for permission polling: ${tmuxSession}`)
+    debug(`Invalid tmux session for polling: ${tmuxSession}`)
     return
   }
 
   execFile('tmux', ['capture-pane', '-t', tmuxSession, '-p', '-S', '-50'], { ...EXEC_OPTIONS, maxBuffer: 1024 * 1024 }, (error, stdout) => {
     if (error) {
-      debug(`Permission poll failed for ${tmuxSession}: ${error.message}`)
+      debug(`tmux poll failed for ${tmuxSession}: ${error.message}`)
       return
     }
 
-    // Check for bypass permissions warning (first-time use of --dangerously-skip-permissions)
-    if (detectBypassWarning(stdout) && !bypassWarningHandled.has(sessionId)) {
-      log(`Bypass permissions warning detected for session ${sessionId}, auto-accepting...`)
-      bypassWarningHandled.add(sessionId)
-      // Send "2" to accept the warning
-      execFile('tmux', ['send-keys', '-t', tmuxSession, '2'], EXEC_OPTIONS, (err) => {
-        if (err) {
-          log(`Failed to auto-accept bypass warning: ${err.message}`)
-        } else {
-          log(`Bypass permissions warning accepted for session ${sessionId}`)
-        }
-      })
-      return // Don't process further this poll cycle
-    }
+    const tail = stdout.slice(-500)
+    const changed = lastTmuxTail.get(tmuxSession) !== tail
+    lastTmuxTail.set(tmuxSession, tail)
 
-    const prompt = detectPermissionPrompt(stdout)
-    const existing = pendingPermissions.get(sessionId)
-
-    if (prompt && !existing) {
-      // New permission prompt detected
-      pendingPermissions.set(sessionId, {
-        tool: prompt.tool,
-        context: prompt.context,
-        options: prompt.options,
-        detectedAt: Date.now(),
-      })
-
-      log(`Permission prompt detected for session ${sessionId}: ${prompt.tool} (${prompt.options.length} options)`)
-
-      // Broadcast to clients with options
-      broadcast({
-        type: 'permission_prompt',
-        payload: {
-          sessionId,
-          tool: prompt.tool,
-          context: prompt.context,
-          options: prompt.options,
-        },
-      } as ServerMessage)
-
-      // Update session status
-      const session = managedSessions.get(sessionId)
-      if (session) {
-        session.status = 'waiting'
-        session.currentTool = prompt.tool
-        broadcastSessions()
-      }
-    } else if (!prompt && existing) {
-      // Permission prompt was resolved (user responded in terminal or elsewhere)
-      pendingPermissions.delete(sessionId)
-      log(`Permission prompt resolved for session ${sessionId}`)
-
-      // Broadcast resolution
-      broadcast({
-        type: 'permission_resolved',
-        payload: { sessionId },
-      } as ServerMessage)
-
-      // Reset session status
-      const session = managedSessions.get(sessionId)
-      if (session && session.status === 'waiting') {
-        session.status = 'working'
-        session.currentTool = undefined
-        broadcastSessions()
-      }
-    }
+    onOutput(stdout, changed)
   })
 }
 
 /**
- * Start polling for permission prompts
+ * Poll tmux panes for permission prompts and token counts.
+ * One capture-pane per session feeds both detectors (they used to capture
+ * separately, at 1s and 2s). Idle sessions are polled less often, since
+ * prompts and token changes only happen while Claude is working.
  */
-function startPermissionPolling(): void {
-  // Poll every 1 second (more frequent than tokens since permissions are time-sensitive)
+function startTmuxPolling(): void {
+  let tick = 0
   setInterval(() => {
+    tick++
     for (const session of managedSessions.values()) {
-      if (session.status !== 'offline') {
-        pollPermissions(session.id, session.tmuxSession)
-      }
+      if (session.status === 'offline') continue
+      if (session.status === 'idle' && tick % IDLE_POLL_EVERY !== 0) continue
+
+      captureTmuxPane(session.tmuxSession, (stdout, changed) => {
+        handlePermissionOutput(session.id, session.tmuxSession, stdout)
+        if (changed) handleTokenOutput(session.tmuxSession, stdout)
+      })
     }
-  }, 1000)
-  log(`Permission polling started`)
+    // Also poll the default session for backwards compatibility
+    if (!managedSessions.size && tick % 2 === 0) {
+      captureTmuxPane(TMUX_SESSION, (stdout, changed) => {
+        if (changed) handleTokenOutput(TMUX_SESSION, stdout)
+      })
+    }
+  }, TMUX_POLL_INTERVAL_MS)
+  log(`tmux polling started`)
 }
 
 /**
@@ -1276,6 +1271,9 @@ function processEvent(event: ClaudeEvent): ClaudeEvent {
   return event
 }
 
+/** Tools that can change a repo's git status */
+const GIT_AFFECTING_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'])
+
 function addEvent(event: ClaudeEvent) {
   // Skip duplicates (hook writes to file AND posts to server)
   if (seenEventIds.has(event.id)) {
@@ -1317,6 +1315,9 @@ function addEvent(event: ClaudeEvent) {
         // Tool completed - update activity time but stay "working"
         // (Claude might be using more tools, stop event marks idle)
         managedSession.currentTool = undefined
+        if (GIT_AFFECTING_TOOLS.has((event as PostToolUseEvent).tool)) {
+          gitStatusManager.markDirty(managedSession.id)
+        }
         break
 
       case 'user_prompt_submit':
@@ -1327,6 +1328,7 @@ function addEvent(event: ClaudeEvent) {
 
       case 'stop':
       case 'session_end':
+        gitStatusManager.markDirty(managedSession.id)
         managedSession.status = 'idle'
         managedSession.currentTool = undefined
         break
@@ -1347,6 +1349,12 @@ function addEvent(event: ClaudeEvent) {
 // File Watching
 // ============================================================================
 
+/**
+ * Compact the events file once it grows past this size. The hook appends
+ * forever, so without compaction the log (and startup time) grows unbounded.
+ */
+const EVENTS_FILE_COMPACT_BYTES = 10 * 1024 * 1024
+
 function loadEventsFromFile() {
   if (!existsSync(EVENTS_FILE)) {
     debug(`Events file not found: ${EVENTS_FILE}`)
@@ -1354,7 +1362,9 @@ function loadEventsFromFile() {
   }
 
   const content = readFileSync(EVENTS_FILE, 'utf-8')
-  const lines = content.trim().split('\n').filter(Boolean)
+  const allLines = content.split('\n').filter(Boolean)
+  // Only the most recent events are kept in memory, so only parse those
+  const lines = allLines.slice(-MAX_EVENTS)
 
   for (const line of lines) {
     try {
@@ -1366,8 +1376,50 @@ function loadEventsFromFile() {
     }
   }
 
-  lastFileSize = content.length
+  if (Buffer.byteLength(content) > EVENTS_FILE_COMPACT_BYTES) {
+    const kept = lines.join('\n') + '\n'
+    writeFileSync(EVENTS_FILE, kept)
+    log(`Compacted events file: kept last ${lines.length} of ${allLines.length} events`)
+  }
+
+  eventsFileOffset = statSync(EVENTS_FILE).size
   log(`Loaded ${events.length} events from file`)
+}
+
+/** Read only the bytes appended since the last read */
+function readNewEvents() {
+  const size = statSync(EVENTS_FILE).size
+  if (size < eventsFileOffset) {
+    // File was truncated or replaced - start over
+    eventsFileOffset = 0
+    eventsFileRemainder = ''
+  }
+  if (size === eventsFileOffset) return
+
+  const fd = openSync(EVENTS_FILE, 'r')
+  try {
+    const buffer = Buffer.alloc(size - eventsFileOffset)
+    readSync(fd, buffer, 0, buffer.length, eventsFileOffset)
+    eventsFileOffset = size
+
+    // Keep a trailing partial line for the next read
+    const chunk = eventsFileRemainder + buffer.toString('utf-8')
+    const newLines = chunk.split('\n')
+    eventsFileRemainder = newLines.pop() ?? ''
+
+    for (const line of newLines) {
+      if (!line) continue
+      try {
+        const event = JSON.parse(line) as ClaudeEvent
+        addEvent(event)
+        debug(`New event from file: ${event.type}`)
+      } catch (e) {
+        debug(`Failed to parse new event: ${line}`)
+      }
+    }
+  } finally {
+    closeSync(fd)
+  }
 }
 
 function watchEventsFile() {
@@ -1382,33 +1434,18 @@ function watchEventsFile() {
     appendFileSync(EVENTS_FILE, '')
   }
 
+  // The hook also POSTs each event to /event, which is the real-time path.
+  // The file watch is a fallback (e.g. server restarted mid-session), so a
+  // relaxed poll interval is enough.
   const watcher = watch(EVENTS_FILE, {
     persistent: true,
     usePolling: true,
-    interval: 100,
+    interval: 1000,
   })
 
   watcher.on('change', () => {
     try {
-      const content = readFileSync(EVENTS_FILE, 'utf-8')
-
-      // Only process new content
-      if (content.length > lastFileSize) {
-        const newContent = content.slice(lastFileSize)
-        const newLines = newContent.trim().split('\n').filter(Boolean)
-
-        for (const line of newLines) {
-          try {
-            const event = JSON.parse(line) as ClaudeEvent
-            addEvent(event)
-            debug(`New event from file: ${event.type}`)
-          } catch (e) {
-            debug(`Failed to parse new event: ${line}`)
-          }
-        }
-
-        lastFileSize = content.length
-      }
+      readNewEvents()
     } catch (e) {
       debug(`Error reading events file: ${e}`)
     }
@@ -2276,14 +2313,16 @@ function main() {
     }
     ws.send(JSON.stringify(tilesMsg))
 
-    // Send recent history - filtered to only include events from current managed sessions
+    // Send recent history - events from current managed sessions, plus recent
+    // events from external sessions (the client gives those view-only zones)
     const activeClaudeSessionIds = new Set(
       Array.from(managedSessions.values())
         .map(s => s.claudeSessionId)
         .filter(Boolean)
     )
+    const externalCutoff = Date.now() - DEFAULTS.EXTERNAL_SESSION_MAX_AGE_MS
     const filteredHistory = events
-      .filter(e => activeClaudeSessionIds.has(e.sessionId))
+      .filter(e => activeClaudeSessionIds.has(e.sessionId) || e.timestamp >= externalCutoff)
       .slice(-50)
     const historyMsg: ServerMessage = {
       type: 'history',
@@ -2321,8 +2360,8 @@ function main() {
     })
   })
 
-  httpServer.listen(PORT, () => {
-    log(`Server running on port ${PORT}`)
+  httpServer.listen(PORT, HOST, () => {
+    log(`Server running on ${HOST}:${PORT}`)
     log(``)
     log(`Open https://vibecraft.sh to view your workshop`)
     log(``)
@@ -2334,11 +2373,8 @@ function main() {
     log(`  Stats: http://localhost:${PORT}/stats`)
     log(`  Sessions: http://localhost:${PORT}/sessions`)
 
-    // Start token polling after server is ready
-    startTokenPolling()
-
-    // Start permission prompt polling
-    startPermissionPolling()
+    // Start permission prompt and token polling after server is ready
+    startTmuxPolling()
 
     // Start session health checking (every 5 seconds)
     setInterval(checkSessionHealth, 5000)
