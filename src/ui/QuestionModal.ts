@@ -5,7 +5,6 @@
  * and sends responses back via the API.
  */
 
-import { soundManager } from '../audio'
 import { escapeHtml } from './FeedManager'
 import type { WorkshopScene } from '../scene/WorkshopScene'
 import type { AttentionSystem } from '../systems/AttentionSystem'
@@ -27,7 +26,6 @@ export interface QuestionData {
 
 export interface QuestionModalContext {
   scene: WorkshopScene | null
-  soundEnabled: boolean
   apiUrl: string
   attentionSystem: AttentionSystem | null
 }
@@ -150,10 +148,6 @@ export function showQuestionModal(data: QuestionData): void {
     context?.attentionSystem?.add(data.managedSessionId)
   }
 
-  // Play notification sound
-  if (context?.soundEnabled) {
-    soundManager.play('notification')
-  }
 }
 
 /**

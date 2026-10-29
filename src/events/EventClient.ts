@@ -46,11 +46,6 @@ export class EventClient {
     return this._isConnected
   }
 
-  /** Get raw WebSocket for direct binary communication (e.g., voice audio) */
-  get socket(): WebSocket | null {
-    return this.ws
-  }
-
   private log(...args: unknown[]) {
     if (this.options.debug) {
       console.log('[EventClient]', ...args)
@@ -227,7 +222,7 @@ export class EventClient {
     return () => this.sessionUpdateHandlers.delete(handler)
   }
 
-  /** Handle raw messages that aren't standard event types (e.g., voice transcripts) */
+  /** Handle raw messages that aren't standard event types (e.g., permission prompts) */
   onRawMessage(handler: RawMessageHandler): () => void {
     this.rawMessageHandlers.add(handler)
     return () => this.rawMessageHandlers.delete(handler)

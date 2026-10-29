@@ -7,7 +7,6 @@ Manage Claude Code in style!
 **[Try it instantly at vibecraft.sh](https://vibecraft.sh)** — still connects to your local Claude Code instances!
 
 **New:**
-- **Spatial Audio** — Claude behind you? Claude on your left? No claublem!
 - **Animations** — What's Claude up to? Watch him! ◕ ‿ ◕
 
 Vibecraft uses your own local Claude Code instances — no files or prompts are shared.
@@ -78,9 +77,7 @@ Then use the input field in the visualization with "Send to tmux" checked.
 - **Subagent visualization** - Mini-Claudes spawn at portal for parallel tasks
 - **Cancel button** - Send Ctrl+C to interrupt Claude
 - **Split-screen layout** - 60% 3D scene (Workshop), 40% activity feed
-- **Voice input** - Speak prompts with real-time transcription (requires Deepgram API key)
 - **Attention system** - Zones pulse when sessions need input or finish
-- **Sound effects** - Synthesized audio feedback for tools and events ([docs/SOUND.md](docs/SOUND.md))
 - **Draw mode** - Paint hex tiles with colors, 3D stacking, and text labels (press `D`)
 - **Text labels** - Add multi-line labels to hex tiles with custom modal
 - **Zone context menus** - Right-click zones for Info (`I`) or quick Command (`C`) input
@@ -110,7 +107,6 @@ See [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) for the full API and architec
 | `1-6` | Switch to session (extended: QWERTY, ASDFGH, ZXCVBN) |
 | `0` / `` ` `` | All sessions / overview |
 | `Alt+N` | New session |
-| `Alt+R` | Toggle voice input |
 | `F` | Toggle follow mode |
 | `P` | Toggle station panels |
 | `D` | Toggle draw mode |

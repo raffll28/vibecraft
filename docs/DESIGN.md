@@ -4,7 +4,7 @@ Guidelines for creating a fluid, interactive experience.
 
 ## Core Philosophy
 
-**Every interaction should feel alive.** The user should never wonder "did that work?" - the system responds immediately with visual and audio feedback.
+**Every interaction should feel alive.** The user should never wonder "did that work?" - the system responds immediately with visual feedback.
 
 ## Feedback Layers
 
@@ -12,14 +12,12 @@ Good interactions have multiple feedback layers that fire simultaneously:
 
 1. **Immediate visual** - hover highlights, button states, cursor changes
 2. **Animation** - ripples, pulses, transitions
-3. **Audio** - subtle SFX confirming actions
-4. **State change** - the actual result of the action
+3. **State change** - the actual result of the action
 
 Example: Clicking a hex cell triggers:
 - Expanding ring at click point (immediate)
 - Hex outline pulse (spatial confirmation)
 - Ripple spreading outward (satisfying animation)
-- Focus sound effect (audio confirmation)
 - Camera movement (state change)
 
 ## Hover States
@@ -30,14 +28,6 @@ Always show what's interactive:
 - Cursor indicates clickable areas
 
 **Principle:** If it's clickable, it should react to hover.
-
-## Sound Design
-
-- **Tool sounds** - each tool has a distinct audio signature
-- **State sounds** - focus, success, error, notification
-- **Subtle volume** - sounds inform, not annoy
-
-**Principle:** Sound confirms without demanding attention.
 
 ## Animation Timing
 
@@ -79,7 +69,6 @@ Ask these questions:
 - Does hovering feel responsive?
 - Does clicking feel satisfying?
 - Is it clear what's interactive?
-- Does the audio enhance or annoy?
 - Do animations feel smooth or janky?
 
 ---

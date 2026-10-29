@@ -9,7 +9,6 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { StationType, TextTile } from '../../shared/types'
 import { HexGrid } from '../utils/HexGrid'
-import { soundManager } from '../audio'
 import { ZoneNotifications, type NotificationOptions } from './ZoneNotifications'
 import { StationPanels } from './StationPanels'
 import { drawMode } from '../ui/DrawMode'
@@ -220,15 +219,6 @@ export class WorkshopScene {
   private hoverHighlight: THREE.Line | null = null
   private hoverRaycaster = new THREE.Raycaster()
   private hoverMouse = new THREE.Vector2()
-  private lastHoveredHex: { q: number; r: number } | null = null
-
-  // === HOVER SOUND TUNING ===
-  // Set to false to disable hover sounds entirely
-  private readonly HOVER_SOUND_ENABLED = true
-  // Expected radius of the playable hex grid (in hex units)
-  // Used to normalize distance for pitch calculation
-  // Increase this if you expand the grid
-  private readonly HOVER_SOUND_MAX_RADIUS = 8
 
   // World grid size (number of hex rings from center)
   private gridRange = 20
@@ -352,32 +342,10 @@ export class WorkshopScene {
       const hexCoord = this.hexGrid.cartesianToHex(point.x, point.z)
       const hexCenter = this.hexGrid.axialToCartesian(hexCoord)
 
-      // Check if we moved to a different hex
-      const isNewHex = !this.lastHoveredHex ||
-        this.lastHoveredHex.q !== hexCoord.q ||
-        this.lastHoveredHex.r !== hexCoord.r
-
-      if (isNewHex) {
-        this.lastHoveredHex = { q: hexCoord.q, r: hexCoord.r }
-
-        if (this.HOVER_SOUND_ENABLED) {
-          // Calculate hex distance from center (0,0)
-          // Formula for axial coordinates: (|q| + |q+r| + |r|) / 2
-          const { q, r } = hexCoord
-          const hexDistance = (Math.abs(q) + Math.abs(q + r) + Math.abs(r)) / 2
-
-          // Normalize to 0-1 range based on expected grid radius
-          const normalizedDistance = hexDistance / this.HOVER_SOUND_MAX_RADIUS
-
-          soundManager.playHover(normalizedDistance)
-        }
-      }
-
       this.hoverHighlight.position.set(hexCenter.x, 0, hexCenter.z)
       this.hoverHighlight.visible = true
     } else {
       this.hoverHighlight.visible = false
-      this.lastHoveredHex = null
     }
   }
 
@@ -385,7 +353,6 @@ export class WorkshopScene {
     if (this.hoverHighlight) {
       this.hoverHighlight.visible = false
     }
-    this.lastHoveredHex = null
   }
 
   /**
@@ -828,8 +795,6 @@ export class WorkshopScene {
         // Update edge lines and side mesh to final position
         this.updateZoneEdgeLines(zone)
         this.updateZoneSideMesh(zone)
-        // Play a subtle sound
-        soundManager.play('click')
         // Notify listeners (for Claude position updates)
         this.notifyZoneElevationChange(sessionId, newElevation)
       }
@@ -885,8 +850,6 @@ export class WorkshopScene {
         // Update edge lines and side mesh to final position
         this.updateZoneEdgeLines(zone)
         this.updateZoneSideMesh(zone)
-        // Play a subtle sound
-        soundManager.play('click')
         // Notify listeners (for Claude position updates)
         this.notifyZoneElevationChange(sessionId, newElevation)
       }
@@ -3271,7 +3234,6 @@ export class WorkshopScene {
   clearAllPaintedHexes(): void {
     // Only play sound if there's something to clear
     if (this.paintedHexes.size > 0) {
-      soundManager.play('clear')
     }
 
     for (const [, data] of this.paintedHexes) {

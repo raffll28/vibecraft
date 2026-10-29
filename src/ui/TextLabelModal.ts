@@ -5,7 +5,6 @@
  * that supports multi-line input for longer text.
  */
 
-import { soundManager } from '../audio/SoundManager'
 
 // ============================================================================
 // Types
@@ -114,7 +113,6 @@ export function showTextLabelModal(options: TextLabelModalOptions = {}): Promise
   // Show modal
   modal.classList.add('visible')
   isVisible = true
-  soundManager.play('notification')
 
   // Focus textarea
   setTimeout(() => {

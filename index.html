@@ -62,34 +62,6 @@
           </div>
         </div>
 
-        <!-- Voice Control (center bottom) -->
-        <div id="voice-control" class="voice-control">
-          <!-- Idle state: mic button with hint -->
-          <div class="voice-idle">
-            <button type="button" id="voice-btn" class="voice-trigger" title="Start voice input">🎤</button>
-            <span class="voice-hint"><kbd>Ctrl</kbd><kbd>M</kbd></span>
-          </div>
-          <!-- Recording state: bars + dot -->
-          <div class="voice-recording">
-            <div class="voice-bars">
-              <div class="voice-bar" data-bar="0"></div>
-              <div class="voice-bar" data-bar="1"></div>
-              <div class="voice-bar" data-bar="2"></div>
-              <div class="voice-bar" data-bar="3"></div>
-              <div class="voice-bar" data-bar="4"></div>
-              <div class="voice-bar" data-bar="5"></div>
-              <div class="voice-bar" data-bar="6"></div>
-              <div class="voice-bar" data-bar="7"></div>
-              <div class="voice-bar" data-bar="8"></div>
-              <div class="voice-bar" data-bar="9"></div>
-            </div>
-            <div class="voice-status-row">
-              <div class="voice-record-dot"></div>
-              <span class="voice-send-hint"><kbd>Enter</kbd> to send</span>
-            </div>
-          </div>
-        </div>
-
         <!-- Draw Mode UI (bottom right of scene) -->
         <div id="draw-indicator">
           <span class="draw-mode-label">DRAW MODE</span>
@@ -143,10 +115,6 @@
         </div>
 
         <div id="prompt-container">
-          <div id="voice-transcript">
-            <div class="transcript-label"><span class="recording-dot"></span> Listening...</div>
-            <div id="voice-transcript-text"></div>
-          </div>
           <form id="prompt-form">
             <div class="input-wrapper">
               <textarea id="prompt-input" placeholder="Prompt..." autocomplete="off" rows="1"></textarea>
@@ -210,22 +178,6 @@
       <div class="modal-content">
         <div class="modal-header">
           <h3>Settings</h3>
-        </div>
-
-        <div class="modal-field">
-          <label>Audio</label>
-          <div class="settings-slider-row">
-            <span class="slider-label">Volume</span>
-            <input type="range" id="settings-volume" class="settings-slider" min="0" max="100" value="70" />
-            <span id="settings-volume-value" class="slider-value">70%</span>
-          </div>
-          <div class="settings-checkbox-row">
-            <label class="checkbox-label">
-              <input type="checkbox" id="settings-spatial-audio" checked />
-              <span>Spatial Audio</span>
-            </label>
-            <span class="field-hint-inline">Volume/pan based on zone position</span>
-          </div>
         </div>
 
         <div class="modal-field">
@@ -310,14 +262,6 @@
           <div class="about-commands">
             <div class="about-cmd"><code>tmux ls</code><span>List sessions</span></div>
             <div class="about-cmd"><code>tmux attach -t <em>session</em></code><span>Attach to session</span></div>
-          </div>
-        </div>
-
-        <div class="about-section">
-          <div class="about-section-title">Voice Input</div>
-          <p class="about-help-text">To enable voice input, add your Deepgram API key to <code>.env</code>:</p>
-          <div class="about-commands">
-            <div class="about-cmd"><code>DEEPGRAM_API_KEY=your_key_here</code></div>
           </div>
         </div>
 

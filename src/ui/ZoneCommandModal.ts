@@ -6,7 +6,6 @@
  */
 
 import * as THREE from 'three'
-import { soundManager } from '../audio/SoundManager'
 
 // ============================================================================
 // Types
@@ -147,7 +146,6 @@ export function showZoneCommandModal(options: ZoneCommandOptions): Promise<boole
 
   // Show with animation
   element.classList.add('visible')
-  soundManager.play('notification')
 
   // Focus input
   setTimeout(() => {
@@ -263,7 +261,6 @@ async function sendCommand(): Promise<void> {
 
     if (result.ok) {
       // Success - close modal
-      soundManager.play('prompt')
       element.classList.remove('visible')
       isVisible = false
 

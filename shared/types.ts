@@ -172,8 +172,6 @@ export type ClientMessage =
   | { type: 'subscribe'; payload?: { sessionId?: string } }
   | { type: 'get_history'; payload?: { limit?: number } }
   | { type: 'ping' }
-  | { type: 'voice_start' }
-  | { type: 'voice_stop' }
   | { type: 'permission_response'; payload: { sessionId: string; response: string } }
 
 // ============================================================================

@@ -22,18 +22,15 @@ import {
   type ManagedSession,
 } from '../shared/types'
 import { DEFAULTS } from '../shared/defaults'
-import { soundManager } from './audio'
 
 // Expose for console testing (can remove in production)
-;(window as any).soundManager = soundManager
-import { setupVoiceControl, type VoiceState } from './ui/VoiceControl'
 import { getToolIcon } from './utils/ToolUtils'
 import { AttentionSystem } from './systems/AttentionSystem'
 import { TimelineManager } from './ui/TimelineManager'
 import { FeedManager, formatTokens, formatTimeAgo, escapeHtml } from './ui/FeedManager'
 import { ContextMenu, type ContextMenuContext } from './ui/ContextMenu'
 import { setupKeyboardShortcuts, getSessionKeybind } from './ui/KeyboardShortcuts'
-import { setupKeybindSettings, updateVoiceHint } from './ui/KeybindSettings'
+import { setupKeybindSettings } from './ui/KeybindSettings'
 import {
   setupQuestionModal,
   showQuestionModal,
@@ -44,7 +41,6 @@ import { toast } from './ui/Toast'
 import {
   setupZoneInfoModal,
   showZoneInfoModal,
-  setZoneInfoSoundEnabled,
 } from './ui/ZoneInfoModal'
 import {
   setupZoneCommandModal,
@@ -125,10 +121,8 @@ interface AppState {
   attentionSystem: AttentionSystem | null  // Manages attention queue and notifications
   timelineManager: TimelineManager | null  // Manages icon timeline
   feedManager: FeedManager | null  // Manages activity feed
-  soundEnabled: boolean  // Whether to play sounds
   hasAutoOverviewed: boolean  // Whether we've done initial auto-overview for 2+ sessions
   userChangedCamera: boolean  // Whether user has manually changed camera (to avoid overriding)
-  voice: VoiceState | null  // Voice input state and controls
   lastPrompts: Map<string, string>  // Last prompt sent per Claude session ID
   promptHistory: string[]  // History of sent prompts for up/down navigation
   historyIndex: number  // Current position in history (-1 = not navigating)
@@ -147,10 +141,8 @@ const state: AppState = {
   attentionSystem: null,  // Initialized in init()
   timelineManager: null,  // Initialized in init()
   feedManager: null,  // Initialized in init()
-  soundEnabled: true,
   hasAutoOverviewed: false,
   userChangedCamera: false,
-  voice: null,  // Initialized in setupVoiceInput()
   lastPrompts: new Map(),
   promptHistory: [],
   historyIndex: -1,
@@ -323,7 +315,6 @@ function renderManagedSessions(): void {
 function selectManagedSession(sessionId: string | null): void {
   state.selectedManagedSession = sessionId
   renderManagedSessions()
-  // Sound is played in focusSession() when the zone is focused
 
   // Persist selection to localStorage
   if (sessionId) {
@@ -569,8 +560,6 @@ function openNewSessionModal(hintPosition?: { x: number; z: number }): void {
 
   modal.classList.add('visible')
 
-  // Play modal open sound
-  soundManager.play('modal_open')
 
   // Focus directory input after animation (it's now first)
   setTimeout(() => cwdInput?.focus(), 100)
@@ -664,15 +653,12 @@ function setupManagedSessions(): void {
     }, ZONE_CREATION_TIMEOUT)
     pendingZoneTimeouts.set(pendingId, timeoutId)
 
-    // Play confirm sound
-    soundManager.play('modal_confirm')
 
     closeModal()
     createManagedSession(name, cwd, flags, hintPosition ?? undefined, pendingId)
   }
 
   const handleCancel = (): void => {
-    soundManager.play('modal_cancel')
     closeModal()
   }
 
@@ -692,10 +678,9 @@ function setupManagedSessions(): void {
     createBtn.addEventListener('click', handleCreate)
   }
 
-  // Close on Escape key (also plays cancel sound)
+  // Close on Escape key
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && modal?.classList.contains('visible')) {
-      soundManager.play('modal_cancel')
       closeModal()
     }
   })
@@ -903,9 +888,6 @@ function removeExternalSession(sessionId: string): void {
     state.sessions.delete(sessionId)
   }
   if (state.scene?.zones.has(sessionId)) {
-    if (state.soundEnabled) {
-      soundManager.play('zone_delete', { zoneId: sessionId })
-    }
     state.scene.deleteZone(sessionId)
   }
   if (state.focusedSessionId === sessionId) {
@@ -957,7 +939,7 @@ function setupClickToPrompt(): void {
   }
 
   // Helper to paint with brush size
-  const paintWithBrush = (centerHex: { q: number; r: number }, playSound: boolean) => {
+  const paintWithBrush = (centerHex: { q: number; r: number }) => {
     if (!state.scene) return
 
     const brushSize = drawMode.getBrushSize()
@@ -976,10 +958,6 @@ function setupClickToPrompt(): void {
         }
         anyPainted = true
       }
-    }
-
-    if (anyPainted && playSound && state.soundEnabled) {
-      soundManager.play('click')
     }
 
     // Save to localStorage (debounced)
@@ -1025,7 +1003,7 @@ function setupClickToPrompt(): void {
         if (floorIntersects.length > 0) {
           const point = floorIntersects[0].point
           const hex = state.scene!.hexGrid.cartesianToHex(point.x, point.z)
-          paintWithBrush(hex, true)
+          paintWithBrush(hex)
           // Spawn click pulse at zone elevation if clicking on a zone
           const zone = state.scene!.getZoneAtHex(hex)
           const pulseY = zone ? zone.elevation + 0.03 : 0.03
@@ -1062,7 +1040,7 @@ function setupClickToPrompt(): void {
       if (allIntersects.length > 0) {
         const point = allIntersects[0].point
         const hex = state.scene.hexGrid.cartesianToHex(point.x, point.z)
-        paintWithBrush(hex, true)
+        paintWithBrush(hex)
       }
     }
   })
@@ -1104,10 +1082,6 @@ function setupClickToPrompt(): void {
         state.scene!.focusZone(sessionId)
         focusSession(sessionId)
 
-        // Play focus sound for zone click
-        if (state.soundEnabled) {
-          soundManager.play('focus')
-        }
 
         // Select the managed session if linked, otherwise clear selection
         const managed = state.managedSessions.find(s => s.claudeSessionId === sessionId)
@@ -1131,10 +1105,6 @@ function setupClickToPrompt(): void {
         state.scene!.focusZone(sessionId)
         focusSession(sessionId)
 
-        // Play focus sound for Claude click
-        if (state.soundEnabled) {
-          soundManager.play('focus')
-        }
 
         const managed = state.managedSessions.find(s => s.claudeSessionId === sessionId)
         if (managed) {
@@ -1172,8 +1142,6 @@ function setupClickToPrompt(): void {
         // Normal mode: context menu (draw mode returns early above)
         // Spawn visual pulse feedback at click location
         state.scene.spawnClickPulse(point.x, point.z)
-        // Play click sound
-        soundManager.play('click')
 
         // Check if there's already a text tile at this position
         const existingTile = state.scene.getTextTileAtHex(hex)
@@ -1443,10 +1411,6 @@ function getOrCreateSession(event: ClaudeEvent): SessionState | null {
     }
   }
 
-  // Play zone creation sound
-  if (state.soundEnabled) {
-    soundManager.play('zone_create', { zoneId: sessionId })
-  }
 
   if (linkedManagedSession) {
     // Update the zone label with the managed session name and keybind
@@ -1641,10 +1605,6 @@ function focusSession(sessionId: string): void {
   state.focusedSessionId = sessionId
   state.scene.focusZone(sessionId)
 
-  // Play focus sound
-  if (state.soundEnabled) {
-    soundManager.play('focus')
-  }
 
   // Play a random idle animation when zone becomes active (if Claude is idle)
   if (session.claude.state === 'idle' && 'playRandomIdleBehavior' in session.claude) {
@@ -1810,7 +1770,6 @@ function handleEvent(event: ClaudeEvent) {
     scene: state.scene,
     feedManager: state.feedManager,
     timelineManager: state.timelineManager,
-    soundEnabled: state.soundEnabled,
     session: session ? {
       id: event.sessionId,
       color: session.color,
@@ -1848,7 +1807,7 @@ function handleEvent(event: ClaudeEvent) {
     case 'pre_tool_use': {
       const e = event as PreToolUseEvent
 
-      // [Sound, character movement, context text handled by EventBus]
+      // [Character movement, context text handled by EventBus]
       // [Thinking indicator handled by EventBus: feedHandlers.ts]
 
       // Update stats after subagent spawn (EventBus handles spawn itself)
@@ -1889,7 +1848,7 @@ function handleEvent(event: ClaudeEvent) {
       const e = event as PostToolUseEvent
       session.stats.toolsUsed++
 
-      // [Sound, notifications, character state handled by EventBus]
+      // [Notifications, character state handled by EventBus]
       // [Subagent removal handled by EventBus: subagentHandlers.ts]
 
       // Hide question modal when AskUserQuestion completes
@@ -1903,7 +1862,7 @@ function handleEvent(event: ClaudeEvent) {
     }
 
     case 'stop': {
-      // [Sound, character, context, zone status handled by EventBus]
+      // [Character, context, zone status handled by EventBus]
       // [Thinking indicator handled by EventBus: feedHandlers.ts]
 
       // Update UI badge (zone attention set by zoneHandlers)
@@ -1919,7 +1878,7 @@ function handleEvent(event: ClaudeEvent) {
       state.lastPrompts.set(event.sessionId, e.prompt)
       renderManagedSessions()
 
-      // [Sound, zone status, character state handled by EventBus]
+      // [Zone status, character state handled by EventBus]
 
       // Show thinking indicator AFTER feedManager.add() to ensure correct order
       // (prompt appears first, then thinking indicator)
@@ -1941,7 +1900,6 @@ function handleEvent(event: ClaudeEvent) {
       break
 
     case 'notification':
-      // [Sound handled by EventBus: soundHandlers.ts]
       // Could trigger visual notification in 3D scene
       break
 
@@ -2121,15 +2079,6 @@ function setupPromptForm() {
   form.addEventListener('submit', async (e) => {
     e.preventDefault()
 
-    // If voice recording is active, stop it first and wait for transcript
-    if (state.voice?.isRecording) {
-      const transcript = await state.voice.stop()
-      if (transcript) {
-        const existing = input.value.trim()
-        input.value = existing ? existing + ' ' + transcript : transcript
-      }
-    }
-
     const prompt = input.value.trim()
     if (!prompt) return
 
@@ -2287,29 +2236,6 @@ function setupTerminalToggle() {
   }
 }
 
-// ============================================================================
-// Audio Initialization
-// ============================================================================
-
-let audioInitialized = false
-
-/**
- * Initialize audio on first user interaction (required by Web Audio API)
- */
-async function initAudioOnInteraction(): Promise<void> {
-  if (audioInitialized) return
-  audioInitialized = true
-
-  try {
-    await soundManager.init()
-    console.log('Audio initialized on user interaction')
-    // Play jazzy intro sound on first interaction
-    soundManager.play('intro')
-  } catch (e) {
-    console.error('Failed to initialize audio:', e)
-  }
-}
-
 /**
  * Setup settings modal
  */
@@ -2317,9 +2243,6 @@ function setupSettingsModal(): void {
   const settingsBtn = document.getElementById('settings-btn')
   const modal = document.getElementById('settings-modal')
   const closeBtn = document.getElementById('settings-close')
-  const volumeSlider = document.getElementById('settings-volume') as HTMLInputElement | null
-  const volumeValue = document.getElementById('settings-volume-value')
-  const spatialCheckbox = document.getElementById('settings-spatial-audio') as HTMLInputElement | null
   const streamingCheckbox = document.getElementById('settings-streaming-mode') as HTMLInputElement | null
   const gridSizeSlider = document.getElementById('settings-grid-size') as HTMLInputElement | null
   const gridSizeValue = document.getElementById('settings-grid-size-value')
@@ -2329,7 +2252,6 @@ function setupSettingsModal(): void {
 
   // Setup keybind settings UI
   setupKeybindSettings()
-  updateVoiceHint()
 
   // Initialize draw mode UI
   drawMode.init()
@@ -2347,15 +2269,6 @@ function setupSettingsModal(): void {
   const portInput = document.getElementById('settings-port') as HTMLInputElement | null
   const portStatus = document.getElementById('settings-port-status')
 
-  // Load saved volume from localStorage
-  const savedVolume = localStorage.getItem('vibecraft-volume')
-  if (savedVolume !== null) {
-    const vol = parseInt(savedVolume, 10) / 100
-    soundManager.setVolume(vol)
-    if (volumeSlider) volumeSlider.value = savedVolume
-    if (volumeValue) volumeValue.textContent = `${savedVolume}%`
-  }
-
   // Load saved grid size from localStorage
   const savedGridSize = localStorage.getItem('vibecraft-grid-size')
   if (savedGridSize !== null) {
@@ -2363,14 +2276,6 @@ function setupSettingsModal(): void {
     state.scene?.setGridRange(size)
     if (gridSizeSlider) gridSizeSlider.value = savedGridSize
     if (gridSizeValue) gridSizeValue.textContent = savedGridSize
-  }
-
-  // Load saved spatial audio setting from localStorage
-  const savedSpatial = localStorage.getItem('vibecraft-spatial-audio')
-  if (savedSpatial !== null) {
-    const enabled = savedSpatial === 'true'
-    soundManager.setSpatialEnabled(enabled)
-    if (spatialCheckbox) spatialCheckbox.checked = enabled
   }
 
   // Load saved streaming mode setting from localStorage
@@ -2396,21 +2301,11 @@ function setupSettingsModal(): void {
 
   // Open modal
   settingsBtn?.addEventListener('click', () => {
-    // Sync slider/checkbox states with current settings
-    if (volumeSlider) {
-      const currentVol = Math.round(soundManager.getVolume() * 100)
-      volumeSlider.value = String(currentVol)
-      if (volumeValue) volumeValue.textContent = `${currentVol}%`
-    }
     // Sync grid size slider
     if (gridSizeSlider && state.scene) {
       const currentSize = state.scene.getGridRange()
       gridSizeSlider.value = String(currentSize)
       if (gridSizeValue) gridSizeValue.textContent = String(currentSize)
-    }
-    // Sync spatial audio checkbox
-    if (spatialCheckbox) {
-      spatialCheckbox.checked = soundManager.isSpatialEnabled()
     }
     // Sync streaming mode checkbox
     if (streamingCheckbox) {
@@ -2434,35 +2329,12 @@ function setupSettingsModal(): void {
     if (e.target === modal) closeModal()
   })
 
-  // Volume slider - plays pitch-modulated tick on every change
-  volumeSlider?.addEventListener('input', () => {
-    const vol = parseInt(volumeSlider.value, 10)
-    soundManager.setVolume(vol / 100)
-    if (volumeValue) volumeValue.textContent = `${vol}%`
-    localStorage.setItem('vibecraft-volume', String(vol))
-    // Play tick with pitch based on slider position
-    if (state.soundEnabled) {
-      soundManager.playSliderTick(vol / 100)
-    }
-  })
-
   // Grid size slider - rebuilds hex grid on change
   gridSizeSlider?.addEventListener('input', () => {
     const size = parseInt(gridSizeSlider.value, 10)
     if (gridSizeValue) gridSizeValue.textContent = String(size)
     state.scene?.setGridRange(size)
     localStorage.setItem('vibecraft-grid-size', String(size))
-    // Play tick with pitch based on slider position (normalized 5-80 to 0-1)
-    if (state.soundEnabled) {
-      soundManager.playSliderTick((size - 5) / 75)
-    }
-  })
-
-  // Spatial audio checkbox
-  spatialCheckbox?.addEventListener('change', () => {
-    const enabled = spatialCheckbox.checked
-    soundManager.setSpatialEnabled(enabled)
-    localStorage.setItem('vibecraft-spatial-audio', String(enabled))
   })
 
   // Streaming mode checkbox
@@ -2623,22 +2495,6 @@ function init() {
   // Create scene (zones and Claudes created dynamically per session)
   state.scene = new WorkshopScene(container)
 
-  // Set up spatial audio resolvers
-  soundManager.setZonePositionResolver((zoneId: string) => {
-    return state.scene?.getZoneWorldPosition(zoneId) ?? null
-  })
-  soundManager.setFocusedZoneResolver(() => {
-    return state.scene?.focusedZoneId ?? null
-  })
-
-  // Update spatial audio listener position periodically (every 100ms)
-  setInterval(() => {
-    if (state.scene) {
-      const camera = state.scene.camera
-      soundManager.updateListener(camera.position.x, camera.position.z, camera.rotation.y)
-    }
-  }, 100)
-
   // Load saved hex art from localStorage
   const savedHexArt = localStorage.getItem('vibecraft-hexart')
   if (savedHexArt) {
@@ -2769,10 +2625,6 @@ function init() {
           }
           const zone = state.scene.createZone(session.claudeSessionId, { hintPosition })
 
-          // Play zone creation sound
-          if (state.soundEnabled) {
-            soundManager.play('zone_create', { zoneId: session.claudeSessionId })
-          }
 
           // Create Claude entity for this zone
           const claude = new Claude(state.scene, {
@@ -2835,10 +2687,6 @@ function init() {
         if (sessionState) {
           sessionState.claude.dispose()
           state.sessions.delete(zoneId)
-        }
-        // Play zone deletion sound BEFORE deleting (so position is still available)
-        if (state.soundEnabled) {
-          soundManager.play('zone_delete', { zoneId })
         }
 
         // Delete the 3D zone
@@ -2986,7 +2834,6 @@ function init() {
   // Setup question modal (for AskUserQuestion)
   setupQuestionModal({
     scene: state.scene,
-    soundEnabled: state.soundEnabled,
     apiUrl: API_URL,
     attentionSystem: state.attentionSystem,
   })
@@ -2994,16 +2841,13 @@ function init() {
   // Setup permission modal (for tool permissions)
   setupPermissionModal({
     scene: state.scene,
-    soundEnabled: state.soundEnabled,
     apiUrl: API_URL,
     attentionSystem: state.attentionSystem,
     getManagedSessions: () => state.managedSessions,
   })
 
   // Setup zone info modal (for session details)
-  setupZoneInfoModal({
-    soundEnabled: state.soundEnabled,
-  })
+  setupZoneInfoModal()
 
   // Setup text label modal (for hex text labels)
   setupTextLabelModal()
@@ -3016,59 +2860,6 @@ function init() {
 
   // Setup not-connected overlay
   setupNotConnectedOverlay()
-
-  // Setup voice input
-  // On vibecraft.sh: voice is always available via cloud proxy, set up immediately
-  // On localhost: needs client connected and voice enabled on server
-  const isHostedSite = window.location.hostname === 'vibecraft.sh'
-  const voiceControl = document.getElementById('voice-control')
-
-  if (isHostedSite) {
-    // Hosted mode - voice always available via cloud proxy
-    if (voiceControl) voiceControl.classList.remove('disabled')
-    state.voice = setupVoiceControl({
-      client: state.client,
-      soundEnabled: () => state.soundEnabled,
-    })
-  } else {
-    // Local mode - check server health for voice availability
-    state.client.onConnection(async (connected) => {
-      if (connected && state.client) {
-        try {
-          const res = await fetch('/health')
-          const health = await res.json()
-          if (!health.voiceEnabled) {
-            if (voiceControl) {
-              voiceControl.classList.add('disabled')
-              voiceControl.title = 'Voice disabled - set DEEPGRAM_API_KEY in .env'
-            }
-            return
-          }
-        } catch {
-          if (voiceControl) {
-            voiceControl.classList.add('disabled')
-            voiceControl.title = 'Voice unavailable - server connection failed'
-          }
-          return
-        }
-        // Voice is enabled, set it up
-        if (voiceControl) voiceControl.classList.remove('disabled')
-        state.voice = setupVoiceControl({
-          client: state.client,
-          soundEnabled: () => state.soundEnabled,
-        })
-      }
-    })
-  }
-
-  // Initialize audio on first user interaction
-  const initAudioOnce = () => {
-    initAudioOnInteraction()
-    document.removeEventListener('click', initAudioOnce)
-    document.removeEventListener('keydown', initAudioOnce)
-  }
-  document.addEventListener('click', initAudioOnce)
-  document.addEventListener('keydown', initAudioOnce)
 
   // Initial UI state
   updateStatus(false, 'Connecting...')

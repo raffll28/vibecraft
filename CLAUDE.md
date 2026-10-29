@@ -34,7 +34,6 @@ handleEvent(event)
 eventBus.emit(type, event, context)
     ↓
 ┌─────────────────────────────────────────────────────────┐
-│  soundHandlers.ts      → Tool sounds, lifecycle sounds  │
 │  notificationHandlers.ts → Zone floating text           │
 │  characterHandlers.ts  → Movement, states               │
 │  subagentHandlers.ts   → Task spawn/remove              │
@@ -75,7 +74,6 @@ export function registerAllHandlers(): void {
 - `scene` - WorkshopScene for 3D updates
 - `feedManager` - Activity feed
 - `timelineManager` - Timeline strip
-- `soundEnabled` - Sound toggle state
 - `session` - Current session's claude, subagents, zone, stats
 
 **Design principle:** EventBus handlers update 3D scene state. main.ts handles DOM UI updates (updateActivity, updateStats, etc.) and special cases (modals).
@@ -371,7 +369,7 @@ CSS is organized into modular files:
 | `base.css` | Reset, body, layout, common animations |
 | `sessions.css` | Session panel, session items, attention badges |
 | `feed.css` | Activity feed, feed items, markdown styles |
-| `prompt.css` | Prompt input, voice control, transcript |
+| `prompt.css` | Prompt input |
 | `hud.css` | Scene HUD, keybinds, timeline |
 | `modals.css` | All modal styles (click menu, settings, questions, permissions) |
 
@@ -473,7 +471,7 @@ See **[docs/STORAGE.md](docs/STORAGE.md)** for complete documentation of:
 
 | Storage | Used For | Examples |
 |---------|----------|----------|
-| localStorage | User preferences, offline content | Volume, keybinds, hex art |
+| localStorage | User preferences, offline content | Keybinds, hex art |
 | Server files (`~/.vibecraft/data/`) | Shared state, server-managed data | Sessions, text tiles, events |
 
 ### Environment Variables
@@ -490,7 +488,6 @@ Environment variables override the defaults:
 | `VIBECRAFT_TMUX_SESSION` | claude | tmux session for prompt injection |
 | `VIBECRAFT_SESSIONS_FILE` | ~/.vibecraft/data/sessions.json | Session persistence file |
 | `VIBECRAFT_DATA_DIR` | ~/.vibecraft/data | Hook data directory |
-| `DEEPGRAM_API_KEY` | (none) | Deepgram API key for voice input |
 
 A `.env` file is included with defaults - just run `npm run dev`.
 
@@ -551,7 +548,6 @@ Client rebuilds its local `claudeToManagedLink` map from server data on every `s
 - **Auto-linking**: Managed sessions automatically link to their 3D zones
 - **Zone labels**: 3D floating labels update to show managed session names
 - **Configurable ports**: Environment variables for client and server ports
-- **Sound effects**: Synthesized audio feedback using Tone.js
 - **Session persistence**: Sessions survive server restarts via `data/sessions.json`
 - **Working timeout**: Sessions auto-transition to idle after 2 min without activity
 - **State reconciliation**: Client rebuilds local state from server on reconnect
@@ -564,8 +560,7 @@ Client rebuilds its local `claudeToManagedLink` map from server data on every `s
 - **Bidirectional selection**: Clicking sidebar ↔ 3D zone stays in sync
 - **Zone floor status colors**: Zone floors glow based on status (idle=subtle zone color, working=cyan, waiting=amber, attention=red, offline=dim)
 - **Attention system**: Zones pulse when sessions need attention (questions, finished)
-- **Voice input**: Deepgram-powered speech-to-text with real-time transcription
-- **Settings modal**: Consolidated settings for sound, tmux, and session management
+- **Settings modal**: Consolidated settings for tmux and session management
 - **Tab/Esc focus switching**: Quick toggle between Workshop (3D) and Activity Feed
 - **Alt+Space shortcut**: Expand most recent "show more" in activity feed
 - **World hex grid**: Visible hex grid across the floor, establishing hexagons as the "base reality"
@@ -573,7 +568,6 @@ Client rebuilds its local `claudeToManagedLink` map from server data on every `s
 - **Zone notifications**: Floating tool completion notifications above zones (file changes, commands, etc.)
 - **Thinking indicator**: "Claude is thinking..." with animated dots in activity feed
 - **Random idle on focus**: Claude plays a random idle animation when zone becomes active
-- **Hex grid hover sounds**: Subtle audio feedback with distance-based pitch when hovering grid
 - **ClaudeMon robot character**: Modular robot buddy with expressive animations
 - **EventBus architecture**: Decoupled event handling with 6 focused handler modules
 - **Extracted modals**: QuestionModal and PermissionModal as separate UI modules
@@ -582,9 +576,6 @@ Client rebuilds its local `claudeToManagedLink` map from server data on every `s
 - **Solid zone sides**: Raised zones show colored side faces, not just edge lines
 - **Text label modal**: Custom themed textarea replaces browser prompt() for tile labels
 - **Multi-line text tiles**: Word wrapping and hex-styled beveled backgrounds
-- **Voice transcript streaming**: Real-time transcription streams to prompt input
-- **Hosted voice mode**: Cloud proxy support for vibecraft.sh deployment
-- **Spatial audio**: Distance-based volume and stereo panning for zone-aware sound effects
 - **Context-aware Ctrl+C**: Copy when text selected, interrupt working session otherwise
 - **Toast notifications**: Reusable toast system for user feedback (info, success, warning, error)
 - **Zone Info modal**: Right-click zone to see session details, git status, tokens, files touched
@@ -592,129 +583,6 @@ Client rebuilds its local `claudeToManagedLink` map from server data on every `s
 - **Station panels**: Toggle with P key to see recent tool history per workstation (last 3 items)
 - **Station glow pulse**: Brief ring highlight when tools use stations
 - **Zone Command modal**: Right-click zone → C for quick prompt input positioned near the 3D zone
-
-## Sound System
-
-See **[docs/SOUND.md](docs/SOUND.md)** for complete documentation including the full sound catalog, spatial audio system, and implementation guide.
-
-### Architecture
-
-Sound effects are generated programmatically using **Tone.js** (Web Audio synthesis). No audio files needed.
-
-**File:** `src/audio/SoundManager.ts`
-
-```typescript
-import { soundManager } from './audio/SoundManager'
-
-// Initialize (must be called from user gesture)
-await soundManager.init()
-
-// Play sounds
-soundManager.play('bash')           // Play by sound name
-soundManager.playTool('Read')       // Play by tool name
-soundManager.playResult(true)       // Play success/error
-
-// Control
-soundManager.setVolume(0.5)         // 0-1
-soundManager.setEnabled(false)      // Mute all
-```
-
-### Sound Catalog
-
-**Tools (8):**
-| Sound | Trigger | Description |
-|-------|---------|-------------|
-| `read` | Read tool | Two-tone sine (A4→C5) |
-| `write` | Write tool | Triple square blip (E5, E5, G5) |
-| `edit` | Edit tool | Double triangle tap (E4→G4) |
-| `bash` | Bash tool | DataBurst - 5 rapid sawtooth blips (C5) |
-| `grep` | Grep/Glob | Soft sine + triangle (D4, F4) |
-| `webfetch` | WebFetch/WebSearch | Ascending arpeggio (C5→E5→G5→C6) |
-| `task` | Task tool | FM synth sweep (C3→C4) |
-| `todo` | TodoWrite | Triple square checklist (E4, E4, G4) |
-
-**States (3):**
-| Sound | Trigger | Description |
-|-------|---------|-------------|
-| `success` | post_tool_use (success=true) | Rising chime (C5→G5) |
-| `error` | post_tool_use (success=false) | Descending buzz (A2→F2) |
-| `walking` | Claude moves | Soft double footstep (D4, D4) |
-
-**Events (6):**
-| Sound | Trigger | Description |
-|-------|---------|-------------|
-| `spawn` | Subagent created | Ethereal rise (C4→G5) |
-| `despawn` | Subagent removed | Ethereal fall (G4→C3) |
-| `prompt` | user_prompt_submit | Gentle acknowledgment (G4→D5) |
-| `stop` | stop event | Completion chord (E4→G4→C5) |
-| `notification` | notification event | Double ping (A4, A4) |
-| `thinking` | Claude thinking state | Ambient two-tone (D4, F4) |
-
-**Special Commands (1):**
-| Sound | Trigger | Description |
-|-------|---------|-------------|
-| `git_commit` | Bash `git commit` | Satisfying fanfare (G3→B3→D4→G4 + shimmer) |
-
-### Design Notes
-
-- **Theme:** "Digital" - clean synth tones, quick response, non-intrusive
-- **No audio files:** All sounds synthesized via Web Audio API
-- **User gesture required:** `soundManager.init()` must be called from click/keypress
-- **Aliases:** Glob→grep, WebSearch→webfetch, NotebookEdit→write
-
-### Integration Points
-
-Sounds are triggered via **EventBus handlers** in `src/events/handlers/soundHandlers.ts`:
-- `pre_tool_use` → `soundManager.playTool(event.tool)`
-- `pre_tool_use` (Bash with `git commit`) → `soundManager.play('git_commit')`
-- `post_tool_use` → `soundManager.playResult(event.success)`
-- `stop` → `soundManager.play('stop')`
-- `user_prompt_submit` → `soundManager.play('prompt')`
-- `notification` → `soundManager.play('notification')`
-- Task tool → `spawn` / `despawn`
-
-Character movement sounds (`walking`) are in `characterHandlers.ts`.
-
-### Spatial Audio
-
-Sounds can be positioned in 3D space based on zone location relative to the camera.
-
-**Files:**
-- `src/audio/SpatialAudioContext.ts` - Manages listener position and calculates spatial params
-- `src/audio/SoundManager.ts` - Integrates spatial audio with sound playback
-
-**Spatial modes:**
-- `positional` - Affected by distance/pan (tool sounds, zone events)
-- `global` - Always centered, full volume (git commit, notifications, UI sounds)
-
-**Features:**
-- **Distance volume:** Far zones are quieter (min 30% volume, never silent)
-- **Stereo panning:** Zones to left/right of camera pan accordingly (±0.7 max)
-- **Focus boost:** Selected zone gets +25% volume regardless of distance
-- **Toggle in settings:** Users can disable spatial audio entirely
-
-**Usage:**
-```typescript
-// Play with spatial positioning (for positional sounds)
-soundManager.play('read', { zoneId: 'session-123' })
-soundManager.playTool('Bash', { zoneId: 'session-123' })
-
-// Play without spatial (for global sounds, or when no zone context)
-soundManager.play('git_commit')  // git_commit is global by definition
-soundManager.play('notification')  // notification is global
-```
-
-**Configuration (in main.ts):**
-```typescript
-// Set up zone position resolver
-soundManager.setZonePositionResolver((zoneId) => scene.getZoneWorldPosition(zoneId))
-soundManager.setFocusedZoneResolver(() => scene.focusedZoneId)
-
-// Update listener position periodically
-setInterval(() => {
-  soundManager.updateListener(camera.position.x, camera.position.z, camera.rotation.y)
-}, 100)
-```
 
 ## Keyboard Shortcuts
 
@@ -732,7 +600,6 @@ setInterval(() => {
 | `Alt+N` | Anywhere | Open new session modal |
 | `Alt+A` | Anywhere | Go to next session needing attention |
 | `Alt+Space` | Anywhere | Expand most recent "show more" in feed |
-| `Alt+R` | Anywhere | Toggle voice recording |
 | `F` | Not in input | Toggle follow-active mode |
 | `P` | Not in input | Toggle station panels (tool history) |
 | `Alt+D` | Anywhere | Toggle dev panel |
@@ -800,7 +667,6 @@ npx vibecraft
 - [x] **Subagent visualization**: Mini-Claudes spawn at portal for Task tools
 - [x] **Floating context labels**: Show file paths above stations
 - [x] **Response capture**: Show Claude's responses in activity feed
-- [x] **Sound effects**: Synthesized audio via Tone.js (see Sound System section)
 - [ ] **Session replay**: Replay events from events.jsonl
 - [ ] **File system map**: 3D visualization of touched files
 - [ ] **VR support**: WebXR for immersive view

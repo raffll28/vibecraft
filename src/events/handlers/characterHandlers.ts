@@ -6,7 +6,6 @@
  */
 
 import { eventBus } from '../EventBus'
-import { soundManager } from '../../audio'
 import { getToolContext } from '../../utils/ToolUtils'
 import { getStationForTool } from '../../../shared/types'
 import type { PreToolUseEvent, PostToolUseEvent, StopEvent, UserPromptSubmitEvent } from '../../../shared/types'
@@ -26,10 +25,6 @@ export function registerCharacterHandlers(): void {
       const zoneStation = ctx.session.zone.stations.get(station)
       if (zoneStation) {
         ctx.session.claude.moveToPosition(zoneStation.position, station)
-        // Play walking sound
-        if (ctx.soundEnabled) {
-          soundManager.play('walking')
-        }
       }
     }
 

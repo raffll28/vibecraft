@@ -2,10 +2,9 @@
  * AttentionSystem - Manages notifications when sessions need user attention
  *
  * Tracks sessions that have transitioned from working → idle and notifies
- * the user via tab title, sounds, and browser notifications.
+ * the user via tab title and browser notifications.
  */
 
-import { soundManager } from '../audio/SoundManager'
 import type { ManagedSession } from '../../shared/types'
 
 export interface AttentionCallbacks {
@@ -17,7 +16,6 @@ export class AttentionSystem {
   private queue: string[] = []
   private previousStatus = new Map<string, string>()
   private callbacks: AttentionCallbacks
-  private soundEnabled = true
   private notificationsEnabled = true
 
   constructor(callbacks: AttentionCallbacks) {
@@ -37,11 +35,6 @@ export class AttentionSystem {
   /** Get count of sessions needing attention */
   get count(): number {
     return this.queue.length
-  }
-
-  /** Enable/disable sounds */
-  setSoundEnabled(enabled: boolean): void {
-    this.soundEnabled = enabled
   }
 
   /** Enable/disable browser notifications */
@@ -102,7 +95,6 @@ export class AttentionSystem {
       // Detect working → idle transition (needs attention)
       if (prevStatus === 'working' && currStatus === 'idle') {
         this.add(session.id)
-        this.playNotificationSound()
         this.showBrowserNotification(session.name)
         newlyIdle.push(session)
       }
@@ -134,12 +126,6 @@ export class AttentionSystem {
     } else {
       document.title = 'Vibecraft'
     }
-  }
-
-  /** Play a notification sound */
-  private playNotificationSound(): void {
-    if (!this.soundEnabled) return
-    soundManager.play('notification')
   }
 
   /** Show a browser notification */

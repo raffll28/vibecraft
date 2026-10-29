@@ -5,7 +5,6 @@
  * --dangerously-skip-permissions and need user approval for tools.
  */
 
-import { soundManager } from '../audio'
 import { escapeHtml } from './FeedManager'
 import type { WorkshopScene } from '../scene/WorkshopScene'
 import type { AttentionSystem } from '../systems/AttentionSystem'
@@ -29,7 +28,6 @@ export interface PermissionData {
 
 export interface PermissionModalContext {
   scene: WorkshopScene | null
-  soundEnabled: boolean
   apiUrl: string
   attentionSystem: AttentionSystem | null
   getManagedSessions: () => ManagedSession[]
@@ -126,10 +124,6 @@ export function showPermissionModal(
   // Add to attention queue
   context.attentionSystem?.add(sessionId)
 
-  // Play notification sound
-  if (context.soundEnabled) {
-    soundManager.play('notification')
-  }
 }
 
 /**

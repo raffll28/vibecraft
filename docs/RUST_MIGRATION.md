@@ -229,8 +229,6 @@ empatavam em ~5 mil req/s, o limite era o cliente.
   acompanha é desconectado (o navegador reconecta e recebe o histórico). O
   Node acumula sem limite: no benchmark, chegou a 153 MiB com clientes
   parados.
-- Voz (Deepgram) ainda não existe no Rust: `voiceEnabled` é `false` e
-  `voice_start` responde "não configurado".
 - `/health` reporta `version: "unknown"`, como o Node compilado. Uma versão
   real ligaria a checagem de atualização contra o repositório original.
 
@@ -263,12 +261,26 @@ servidor (45 + 21) passam nos dois. tmux e git nunca rodam com o lock do
 estado preso: lê-se o necessário, solta-se o lock, roda o comando, e trava de
 novo para aplicar o resultado.
 
-### 3c. Voz (Deepgram), por último
+## Fase 4: a troca (concluída)
 
-## Fase 4: desligar o Node
+`vibecraft` (`bin/cli.js`) inicia o servidor Rust quando ele foi compilado,
+senão o Node compilado, senão o tsx. `VIBECRAFT_SERVER=node` força o Node.
+Com o hook da Fase 1, o caminho inteiro do dia a dia é Rust: hook →
+`events.jsonl`/POST → servidor → navegador.
 
-Quando todas as rotas estiverem no Rust: remover o proxy, comparar binário,
-memória, startup e latência com o baseline da Fase 0.
+**Voz e sons removidos.** Só a parte gráfica animada é usada, então saíram a
+entrada por voz (Deepgram) e os efeitos sonoros (Tone.js, áudio espacial):
+`src/audio/`, `VoiceControl`, `soundHandlers`, os controles de volume e
+áudio espacial nas configurações, o botão de microfone, o atalho de voz, e
+o código de voz dos dois servidores (`voiceEnabled` saiu do `/health`).
+Isso também evitou portar a voz para Rust, que exigiria TLS (`rustls` e
+dezenas de crates).
+
+| | Antes | Depois |
+|---|---|---|
+| Dependências de runtime (npm) | 5 | 3 (`chokidar`, `three`, `ws`) |
+| `node_modules` | 141 MiB | 107 MiB |
+| Bundle do frontend | 998 KB | 734 KB |
 
 ## Fora do escopo (por enquanto)
 

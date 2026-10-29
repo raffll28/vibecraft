@@ -36,9 +36,8 @@ describe('server: read-only endpoints', () => {
   it('/health', async () => {
     const { status, body } = await getJson(server, '/health')
     assert.equal(status, 200)
-    assert.deepEqual(Object.keys(body).sort(), ['clients', 'events', 'ok', 'version', 'voiceEnabled'])
+    assert.deepEqual(Object.keys(body).sort(), ['clients', 'events', 'ok', 'version'])
     assert.equal(body.ok, true)
-    assert.equal(body.voiceEnabled, false)
     assert.equal(typeof body.version, 'string')
   })
 

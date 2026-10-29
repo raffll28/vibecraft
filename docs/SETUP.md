@@ -266,21 +266,6 @@ You likely have duplicate hooks configured. Check `~/.claude/settings.json` for 
 
 ---
 
-## Voice Input (Optional)
-
-For speech-to-text prompts:
-
-1. Sign up at [deepgram.com](https://deepgram.com)
-2. Create an API key
-3. Add to your `.env` file:
-   ```bash
-   DEEPGRAM_API_KEY=your_api_key_here
-   ```
-4. Restart the server
-5. Press `Alt+S` or click the microphone icon
-
----
-
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -288,7 +273,6 @@ For speech-to-text prompts:
 | `VIBECRAFT_PORT` | `4003` | Server port |
 | `VIBECRAFT_TMUX_SESSION` | `claude` | tmux session for prompts |
 | `VIBECRAFT_DEBUG` | `false` | Verbose logging |
-| `DEEPGRAM_API_KEY` | (none) | Deepgram API key for voice input |
 
 Example:
 ```bash

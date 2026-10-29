@@ -75,7 +75,6 @@ fn route(req: &Request, shared: &Shared, config: &Config) -> Response {
                     "version": "unknown",
                     "clients": state.clients.len(),
                     "events": state.events.len(),
-                    "voiceEnabled": false,
                 }),
             )
         }

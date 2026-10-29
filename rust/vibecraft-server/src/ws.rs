@@ -6,8 +6,8 @@ use crate::http::{Request, Response};
 use crate::sha1::{base64, sha1};
 
 const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-/// Largest message accepted from a client (voice audio comes in small chunks)
-const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+/// Largest message accepted from a client (they only send small JSON)
+const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 
 pub fn is_upgrade(req: &Request) -> bool {
     req.method == "GET"
@@ -40,7 +40,7 @@ pub fn write_handshake(stream: &mut impl Write, res: &Response) -> io::Result<()
 
 pub enum Message {
     Text(String),
-    /// Binary payloads (voice audio) aren't used by this server yet
+    /// Binary payloads: no client sends them, so they're dropped
     Binary(()),
     Close,
 }

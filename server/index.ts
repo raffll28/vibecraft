@@ -6,7 +6,6 @@
  * 2. Accepts HTTP POST /event for real-time hook notifications
  * 3. Broadcasts events to connected WebSocket clients
  * 4. Tracks tool durations by matching pre/post events
- * 5. Proxies voice input to Deepgram for transcription
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http'
@@ -17,8 +16,6 @@ import { exec, execFile } from 'child_process'
 import { dirname, resolve, join, extname } from 'path'
 import { hostname } from 'os'
 import { randomUUID, randomBytes } from 'crypto'
-import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk'
-import type { LiveClient } from '@deepgram/sdk'
 import type {
   ClaudeEvent,
   ServerMessage,
@@ -104,13 +101,6 @@ const EXEC_PATH = [
 
 /** Options for exec() with extended PATH */
 const EXEC_OPTIONS = { env: { ...process.env, PATH: EXEC_PATH } }
-
-/** Deepgram API key from environment */
-const DEEPGRAM_API_KEY_ENV = 'DEEPGRAM_API_KEY'
-
-/** Deepgram transcription settings */
-const DEEPGRAM_MODEL = 'nova-2'
-const DEEPGRAM_LANGUAGE = 'en'
 
 /**
  * Promisified execFile helper
@@ -237,23 +227,6 @@ const gitStatusManager = new GitStatusManager()
 
 /** Project directories manager */
 const projectsManager = new ProjectsManager()
-
-/** Active voice transcription sessions (WebSocket client → Deepgram connection) */
-const voiceSessions = new Map<WebSocket, LiveClient>()
-
-/** Deepgram API key (loaded on startup) */
-let deepgramApiKey: string | null = null
-
-/** Load Deepgram API key from environment */
-function loadDeepgramKey(): string | null {
-  const key = process.env[DEEPGRAM_API_KEY_ENV]?.trim()
-  if (key) {
-    log('Deepgram API key loaded from environment')
-    return key
-  }
-  log(`${DEEPGRAM_API_KEY_ENV} not set - voice input disabled`)
-  return null
-}
 
 /** Map Claude Code session IDs to our managed session IDs */
 const claudeToManagedMap = new Map<string, string>()
@@ -885,107 +858,6 @@ function broadcastTiles(): void {
   })
 }
 
-// ============================================================================
-// Voice Transcription (Deepgram)
-// ============================================================================
-
-/**
- * Start a voice transcription session for a WebSocket client
- */
-function startVoiceSession(ws: WebSocket): boolean {
-  if (!deepgramApiKey) {
-    ws.send(JSON.stringify({ type: 'voice_error', payload: { error: 'Voice input not configured' } }))
-    return false
-  }
-
-  // Clean up any existing session
-  stopVoiceSession(ws)
-
-  try {
-    const deepgram = createClient(deepgramApiKey)
-    const connection = deepgram.listen.live({
-      model: DEEPGRAM_MODEL,
-      language: DEEPGRAM_LANGUAGE,
-      smart_format: true,
-      interim_results: true,
-      utterance_end_ms: 1000,
-      vad_events: true,
-      encoding: 'linear16',
-      sample_rate: 16000,
-    })
-
-    connection.on(LiveTranscriptionEvents.Open, () => {
-      ws.send(JSON.stringify({ type: 'voice_ready', payload: {} }))
-    })
-
-    connection.on(LiveTranscriptionEvents.Transcript, (data) => {
-      const transcript = data.channel?.alternatives?.[0]?.transcript
-      if (transcript) {
-        ws.send(JSON.stringify({
-          type: 'voice_transcript',
-          payload: { transcript, isFinal: data.is_final }
-        }))
-      }
-    })
-
-    connection.on(LiveTranscriptionEvents.UtteranceEnd, () => {
-      ws.send(JSON.stringify({ type: 'voice_utterance_end', payload: {} }))
-    })
-
-    connection.on(LiveTranscriptionEvents.Error, (error) => {
-      log(`Deepgram error: ${error}`)
-      ws.send(JSON.stringify({ type: 'voice_error', payload: { error: String(error) } }))
-    })
-
-    connection.on(LiveTranscriptionEvents.Close, () => {
-      voiceSessions.delete(ws)
-    })
-
-    voiceSessions.set(ws, connection)
-    debug('Voice session started')
-    return true
-  } catch (e) {
-    log(`Failed to start voice session: ${e}`)
-    ws.send(JSON.stringify({ type: 'voice_error', payload: { error: String(e) } }))
-    return false
-  }
-}
-
-/**
- * Stop a voice transcription session
- */
-function stopVoiceSession(ws: WebSocket): void {
-  const connection = voiceSessions.get(ws)
-  if (connection) {
-    try {
-      connection.requestClose()
-    } catch (e) {
-      // Ignore close errors
-    }
-    voiceSessions.delete(ws)
-    debug('Voice session stopped')
-  }
-}
-
-/**
- * Send audio data to Deepgram for transcription
- */
-function sendVoiceAudio(ws: WebSocket, audioData: Buffer): void {
-  const connection = voiceSessions.get(ws)
-  if (!connection) return
-
-  try {
-    // Convert Node.js Buffer to ArrayBuffer for Deepgram SDK
-    const arrayBuffer = audioData.buffer.slice(
-      audioData.byteOffset,
-      audioData.byteOffset + audioData.byteLength
-    )
-    connection.send(arrayBuffer)
-  } catch (e) {
-    debug(`Error sending audio: ${e}`)
-  }
-}
-
 /**
  * Link a Claude Code session ID to a managed session
  */
@@ -1201,14 +1073,6 @@ function handleClientMessage(ws: WebSocket, message: ClientMessage) {
       // Just acknowledge, no response needed
       break
 
-    case 'voice_start':
-      startVoiceSession(ws)
-      break
-
-    case 'voice_stop':
-      stopVoiceSession(ws)
-      break
-
     case 'permission_response': {
       const { sessionId, response } = message.payload
       sendPermissionResponse(sessionId, response)
@@ -1277,7 +1141,6 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       version: VERSION,
       clients: clients.size,
       events: eventStore.events.length,
-      voiceEnabled: !!deepgramApiKey,
     }))
     return
   }
@@ -1974,9 +1837,6 @@ function serveStaticFile(req: IncomingMessage, res: ServerResponse): void {
 function main() {
   log('Starting Vibecraft server...')
 
-  // Load Deepgram API key for voice transcription
-  deepgramApiKey = loadDeepgramKey()
-
   // Load existing events
   loadEventsFromFile()
 
@@ -2057,14 +1917,8 @@ function main() {
     ws.send(JSON.stringify(historyMsg))
 
     ws.on('message', (data: RawData, isBinary: boolean) => {
-      // Handle binary audio data for voice transcription
-      if (isBinary) {
-        const audioBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
-        sendVoiceAudio(ws, audioBuffer)
-        return
-      }
+      if (isBinary) return
 
-      // Handle JSON messages
       try {
         const message = JSON.parse(data.toString()) as ClientMessage
         handleClientMessage(ws, message)
@@ -2074,14 +1928,12 @@ function main() {
     })
 
     ws.on('close', () => {
-      stopVoiceSession(ws) // Clean up any voice session
       clients.delete(ws)
       log(`Client disconnected (${clients.size} total)`)
     })
 
     ws.on('error', (error) => {
       debug(`WebSocket error: ${error}`)
-      stopVoiceSession(ws) // Clean up any voice session
       clients.delete(ws)
     })
   })

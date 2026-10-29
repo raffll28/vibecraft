@@ -4,7 +4,6 @@
  * Import and call registerAllHandlers() to set up EventBus handlers.
  */
 
-import { registerSoundHandlers } from './soundHandlers'
 import { registerNotificationHandlers } from './notificationHandlers'
 import { registerCharacterHandlers } from './characterHandlers'
 import { registerSubagentHandlers } from './subagentHandlers'
@@ -17,7 +16,6 @@ import { registerAnimationHandlers } from './animationHandlers'
  * Call this once during app initialization
  */
 export function registerAllHandlers(): void {
-  registerSoundHandlers()
   registerNotificationHandlers()
   registerCharacterHandlers()
   registerSubagentHandlers()
@@ -28,7 +26,6 @@ export function registerAllHandlers(): void {
 
 // Re-export individual registrations for testing
 export {
-  registerSoundHandlers,
   registerNotificationHandlers,
   registerCharacterHandlers,
   registerSubagentHandlers,

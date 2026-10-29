@@ -53,10 +53,8 @@
     "release": "./scripts/release.sh"
   },
   "dependencies": {
-    "@deepgram/sdk": "^4.11.3",
     "chokidar": "^4.0.0",
     "three": "^0.170.0",
-    "tone": "^15.1.22",
     "ws": "^8.18.0"
   },
   "devDependencies": {

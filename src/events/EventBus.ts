@@ -8,7 +8,7 @@
  * ```typescript
  * // Subscribe to events
  * eventBus.on('pre_tool_use', (event, context) => {
- *   soundManager.playTool(event.tool)
+ *   context.session?.claude.setState('working')
  * })
  *
  * // Emit events (from handleEvent)
@@ -41,8 +41,6 @@ export interface EventContext {
   timelineManager: TimelineManager | null
   /** Session state for the event's session */
   session: SessionContext | null
-  /** Sound enabled flag */
-  soundEnabled: boolean
 }
 
 /**

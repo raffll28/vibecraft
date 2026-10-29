@@ -7,7 +7,6 @@
  * - D or Esc exits draw mode
  */
 
-import { soundManager } from '../audio/SoundManager'
 
 export interface DrawColor {
   id: string
@@ -124,7 +123,6 @@ class DrawModeManager {
       this.state.isEraser = false
       this.updateUI()
       this.notifyChange()
-      soundManager.playColorSelect(index)
     }
   }
 
@@ -135,7 +133,6 @@ class DrawModeManager {
     this.state.isEraser = true
     this.updateUI()
     this.notifyChange()
-    soundManager.playColorSelect(-1)  // Eraser sound
   }
 
   /**
@@ -153,7 +150,6 @@ class DrawModeManager {
       this.state.brushSize++
       this.updateUI()
       this.notifyChange()
-      soundManager.playSliderTick(this.state.brushSize / 4)
     }
   }
 
@@ -165,7 +161,6 @@ class DrawModeManager {
       this.state.brushSize--
       this.updateUI()
       this.notifyChange()
-      soundManager.playSliderTick(this.state.brushSize / 4)
     }
   }
 
@@ -183,7 +178,6 @@ class DrawModeManager {
     this.state.is3DMode = !this.state.is3DMode
     this.updateUI()
     this.notifyChange()
-    soundManager.playSliderTick(this.state.is3DMode ? 1 : 0)
   }
 
   /**

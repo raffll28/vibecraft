@@ -3,8 +3,6 @@
 //! One thread per connection (vibecraft has a handful of local clients), a
 //! shared state behind a mutex, one writer thread per WebSocket client fed
 //! by a channel, and inotify on the events file instead of polling.
-//!
-//! Still in Node only: voice transcription (Deepgram).
 
 mod git;
 mod http;
@@ -270,7 +268,7 @@ fn websocket(
         });
         match message {
             Ok(ws::Message::Text(text)) => handle_client_message(&text, &client, shared),
-            // Voice audio: not supported by this server yet
+            // Clients only send JSON; binary messages are ignored
             Ok(ws::Message::Binary(())) => {}
             Ok(ws::Message::Close) => {
                 client.send(Arc::new(ws::close_frame(1000, "")));
@@ -300,10 +298,6 @@ fn handle_client_message(text: &str, client: &Client, shared: &Shared) {
             let history: Vec<&Value> = state.events.events().skip(start).collect();
             send(json!({ "type": "history", "payload": history }));
         }
-        Some("voice_start") => send(json!({
-            "type": "voice_error",
-            "payload": { "error": "Voice input not configured" },
-        })),
         Some("permission_response") => {
             let payload = message.get("payload");
             let field = |k: &str| payload.and_then(|p| p.get(k)).and_then(Value::as_str);
@@ -311,7 +305,7 @@ fn handle_client_message(text: &str, client: &Client, shared: &Shared) {
                 sessions::send_permission_response(shared, id, response);
             }
         }
-        // ping, subscribe, voice_stop
+        // ping, subscribe
         _ => {}
     }
 }

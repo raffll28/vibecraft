@@ -5,7 +5,6 @@
  */
 
 import type { ManagedSession, GitStatus } from '../../shared/types'
-import { soundManager } from '../audio'
 import { formatTimeAgo } from './FeedManager'
 
 // ============================================================================
@@ -28,7 +27,6 @@ export interface ZoneInfoData {
 // ============================================================================
 
 let modal: HTMLElement | null = null
-let soundEnabled = true
 
 // ============================================================================
 // Public API
@@ -37,8 +35,7 @@ let soundEnabled = true
 /**
  * Initialize the zone info modal
  */
-export function setupZoneInfoModal(options: { soundEnabled: boolean }): void {
-  soundEnabled = options.soundEnabled
+export function setupZoneInfoModal(): void {
   modal = document.getElementById('zone-info-modal')
 
   const closeBtn = document.getElementById('zone-info-close')
@@ -65,9 +62,6 @@ export function setupZoneInfoModal(options: { soundEnabled: boolean }): void {
 export function showZoneInfoModal(data: ZoneInfoData): void {
   if (!modal) return
 
-  if (soundEnabled) {
-    soundManager.play('modal_open')
-  }
 
   renderContent(data)
   modal.classList.add('visible')
@@ -79,18 +73,8 @@ export function showZoneInfoModal(data: ZoneInfoData): void {
 export function hideZoneInfoModal(): void {
   if (!modal) return
 
-  if (soundEnabled) {
-    soundManager.play('modal_cancel')
-  }
 
   modal.classList.remove('visible')
-}
-
-/**
- * Update sound enabled state
- */
-export function setZoneInfoSoundEnabled(enabled: boolean): void {
-  soundEnabled = enabled
 }
 
 // ============================================================================

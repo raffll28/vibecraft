@@ -2,7 +2,7 @@
  * KeybindConfig - Editable keyboard shortcuts configuration
  *
  * Manages user-customizable keybindings with localStorage persistence.
- * Only certain bindings are editable (focus, voice) - session keys are fixed.
+ * Only certain bindings are editable (focus) - session keys are fixed.
  */
 
 // ============================================================================
@@ -44,16 +44,6 @@ const DEFAULT_KEYBIND_ACTIONS: KeybindAction[] = [
     defaults: [
       { key: 'Tab', modifier: 'none' },
       { key: 'Escape', modifier: 'none' },
-    ],
-    bindings: [],
-  },
-  {
-    id: 'voice-toggle',
-    name: 'Voice Input',
-    description: 'Start/stop voice recording',
-    editable: true,
-    defaults: [
-      { key: 'm', modifier: 'ctrl' },
     ],
     bindings: [],
   },

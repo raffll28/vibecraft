@@ -75,7 +75,6 @@ export async function startServer(env: TestEnv, extraEnv: Record<string, string>
       VIBECRAFT_EVENTS_FILE: env.eventsFile,
       // A tmux session that can't exist, so tmux calls fail fast and harmlessly
       VIBECRAFT_TMUX_SESSION: 'vibecraft-test-none',
-      DEEPGRAM_API_KEY: '',
       ...extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],

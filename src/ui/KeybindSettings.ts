@@ -20,10 +20,9 @@ let editingElement: HTMLElement | null = null
 export function setupKeybindSettings(): void {
   renderKeybindSettings()
 
-  // Listen for changes to re-render and update hints
+  // Listen for changes to re-render
   keybindManager.onChange(() => {
     renderKeybindSettings()
-    updateVoiceHint()
   })
 
   // Global keydown listener for capturing new keybinds
@@ -186,33 +185,4 @@ function cancelEditing(): void {
   editingActionId = null
   editingElement = null
   renderKeybindSettings()
-}
-
-/**
- * Update the voice hint in the UI to show current keybind
- */
-export function updateVoiceHint(): void {
-  const voiceHint = document.querySelector('.voice-hint')
-  if (!voiceHint) return
-
-  const bindings = keybindManager.getBindings('voice-toggle')
-  if (bindings.length > 0) {
-    const binding = bindings[0]
-    const parts: string[] = []
-
-    if (binding.modifier !== 'none') {
-      const modDisplay = {
-        ctrl: 'Ctrl',
-        alt: 'Alt',
-        shift: 'Shift',
-        meta: '⌘',
-      }
-      parts.push(`<kbd>${modDisplay[binding.modifier]}</kbd>`)
-    }
-
-    const keyDisplay = binding.key.length === 1 ? binding.key.toUpperCase() : binding.key
-    parts.push(`<kbd>${keyDisplay}</kbd>`)
-
-    voiceHint.innerHTML = parts.join('')
-  }
 }

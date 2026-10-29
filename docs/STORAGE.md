@@ -14,8 +14,6 @@ Vibecraft uses two storage locations:
 | Key | Data | Type |
 |-----|------|------|
 | `vibecraft-selected-session` | Currently selected session ID | UI state |
-| `vibecraft-volume` | Sound volume (0-100) | User preference |
-| `vibecraft-spatial-audio` | Spatial audio enabled (true/false) | User preference |
 | `vibecraft-grid-size` | World grid size (5-80 hex rings) | User preference |
 | `vibecraft-agent-port` | Custom server port override | User config |
 | `vibecraft-keybinds` | Custom keyboard bindings | User preference |
@@ -114,7 +112,7 @@ Vibecraft uses two storage locations:
 
 | If the data... | Use | Example |
 |----------------|-----|---------|
-| Is user-specific preference | localStorage | Volume, keybinds |
+| Is user-specific preference | localStorage | Keybinds |
 | Needs to work offline | localStorage | Hex art |
 | Must sync across browser tabs | Server file | Text tiles |
 | Server needs to act on it | Server file | Sessions (tmux) |
@@ -135,7 +133,7 @@ The current data formats are designed to be API-ready:
 
 ## Related Files
 
-- `src/main.ts` - localStorage read/write for hex art, volume, session selection
+- `src/main.ts` - localStorage read/write for hex art, session selection
 - `src/ui/KeybindConfig.ts` - localStorage for keybinds
 - `server/index.ts` - Server file management, API endpoints
 - `shared/types.ts` - TypeScript types for all data structures
