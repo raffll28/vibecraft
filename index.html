@@ -36,8 +36,6 @@
             <span id="username" class="hud-user">...</span>
             <span id="status-text"></span>
             <span class="hud-sep">|</span>
-            <span id="token-counter" class="hud-tokens" title="Tokens used this session">⚡ 0 tok</span>
-            <span class="hud-sep">|</span>
             <button id="settings-btn" class="hud-btn" title="Settings">⚙️</button>
             <!-- Debug: FPS counter (uncomment to enable)
             <span class="hud-sep">|</span>
@@ -55,7 +53,7 @@
         <!-- Keybind Helper (bottom-left) -->
         <div id="keybind-helper">
           <div class="keybind-list">
-            <span class="keybind"><kbd>1-6</kbd> sessions · <kbd>`</kbd><kbd>0</kbd> all · <kbd>Tab</kbd> focus · <kbd>D</kbd> draw</span>
+            <span class="keybind"><kbd>1-9</kbd> sessions · <kbd>`</kbd><kbd>0</kbd> all · <kbd>F</kbd> follow · <kbd>D</kbd> draw</span>
           </div>
         </div>
 
@@ -70,104 +68,6 @@
 
       </div>
 
-      <!-- Right: Activity Feed -->
-      <div id="feed-panel">
-        <div id="feed-header">
-          <h2>Vibecraft <span class="muted">(vibecraft.sh)</span></h2>
-          <div class="feed-header-right">
-            <span id="attention-badge" class="attention-badge hidden">0</span>
-            <button id="about-btn" class="feed-about-btn" title="About Vibecraft">?</button>
-          </div>
-        </div>
-
-        <!-- Session Management -->
-        <div id="sessions-panel">
-          <div id="sessions-list">
-            <div class="session-item all-sessions active" data-session="all">
-              <div class="session-hotkey">0</div>
-              <div class="session-icon">📋</div>
-              <div class="session-info">
-                <div class="session-name">All Sessions</div>
-                <div class="session-detail" id="all-sessions-count">No active sessions</div>
-              </div>
-            </div>
-            <div id="managed-sessions"></div>
-          </div>
-        </div>
-
-        <!-- Terminal output panel (hidden by default) -->
-        <div id="terminal-panel" class="hidden">
-          <div id="terminal-output"></div>
-        </div>
-
-        <div id="activity-feed-wrapper">
-          <div id="activity-feed">
-            <div id="feed-empty">
-              <div id="feed-empty-icon">🛠️</div>
-              <h3>Waiting for activity</h3>
-              <p>Start using Claude Code to see events here</p>
-            </div>
-          </div>
-          <button id="feed-scroll-bottom">↓ Jump to latest</button>
-        </div>
-
-        <div id="prompt-container">
-          <form id="prompt-form">
-            <div class="input-wrapper">
-              <textarea id="prompt-input" placeholder="Prompt..." autocomplete="off" rows="1"></textarea>
-            </div>
-            <button type="submit" id="prompt-submit"><span class="btn-icon">↗</span> Send</button>
-            <button type="button" id="prompt-cancel"><span class="btn-icon">◼</span> Stop</button>
-          </form>
-          <div id="prompt-options">
-            <span id="prompt-target"></span>
-            <span id="prompt-status"></span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- New Session Modal -->
-    <div id="new-session-modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>New Zone</h3>
-        </div>
-
-        <div class="modal-field">
-          <label for="session-cwd-input">Directory</label>
-          <input type="text" id="session-cwd-input" placeholder="e.g. /home/user/my-project" autocomplete="off" />
-          <div class="field-hint">Default: <code id="modal-default-cwd">~</code></div>
-        </div>
-
-        <div class="modal-field">
-          <label for="session-name-input">Name</label>
-          <input type="text" id="session-name-input" placeholder="Auto-filled from directory..." autocomplete="off" />
-        </div>
-
-        <div class="modal-field">
-          <label>Options</label>
-          <div class="modal-checkboxes">
-            <label class="modal-checkbox">
-              <input type="checkbox" id="session-opt-continue" />
-              <span class="checkbox-label">Continue <code>-c</code></span>
-            </label>
-            <label class="modal-checkbox">
-              <input type="checkbox" id="session-opt-skip-perms" checked />
-              <span class="checkbox-label">Skip permissions <code>--dangerously-skip-permissions</code></span>
-            </label>
-            <label class="modal-checkbox">
-              <input type="checkbox" id="session-opt-chrome" />
-              <span class="checkbox-label">Chrome <code>--chrome</code></span>
-            </label>
-          </div>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" class="modal-btn modal-btn-cancel" id="modal-cancel">✕ Cancel</button>
-          <button type="button" class="modal-btn modal-btn-create" id="modal-create">+ Create</button>
-        </div>
-      </div>
     </div>
 
     <!-- Settings Modal -->
@@ -208,125 +108,8 @@
           <div class="field-hint">Port where the Vibecraft agent is running. Changes require refresh.</div>
         </div>
 
-        <div class="modal-field">
-          <label>Sessions</label>
-          <div class="settings-actions">
-            <button type="button" class="settings-action-btn" id="settings-refresh-sessions">🔄 Refresh Sessions</button>
-          </div>
-        </div>
-
-        <div class="modal-field">
-          <label>Keyboard Shortcuts</label>
-          <div id="keybind-settings" class="keybind-settings">
-            <!-- Dynamically populated by KeybindSettings.ts -->
-          </div>
-          <div class="field-hint">Click a keybind to change it. Press the new key combination, or Escape to cancel.</div>
-        </div>
-
         <div class="modal-actions">
           <button type="button" class="modal-btn modal-btn-cancel" id="settings-close">✕ Close</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- About Modal -->
-    <div id="about-modal">
-      <div class="modal-content about-modal-content">
-        <div class="modal-header">
-          <h3>Vibecraft</h3>
-        </div>
-
-        <div class="about-description">
-          <p>Vibecraft is a A 3D visualization app for Claude Code.</p>
-          <p>Watch and manage your claudes in real-time - now featuring hexagonal grids!</p>
-          <p class="about-subtitle">Vibecraft syncs with claude code instances running on your own machine. No files or
-          code are sent to the web server.</p>
-        </div>
-
-        <div class="about-section">
-          <div class="about-section-title">Commands</div>
-          <div class="about-commands">
-            <div class="about-cmd"><code>npx vibecraft</code><span>Start server</span></div>
-            <div class="about-cmd"><code>npx vibecraft doctor</code><span>Diagnose issues</span></div>
-            <div class="about-cmd"><code>npx vibecraft setup</code><span>Reinstall hooks</span></div>
-            <div class="about-cmd"><code>npx vibecraft uninstall</code><span>Remove hooks</span></div>
-          </div>
-        </div>
-
-        <div class="about-section">
-          <div class="about-section-title">Troubleshooting</div>
-          <p class="about-help-text">If a zone gets stuck, Claude Code may be waiting for input or in an unknown state. Attach to the tmux session to see what's happening:</p>
-          <div class="about-commands">
-            <div class="about-cmd"><code>tmux ls</code><span>List sessions</span></div>
-            <div class="about-cmd"><code>tmux attach -t <em>session</em></code><span>Attach to session</span></div>
-          </div>
-        </div>
-
-        <div class="about-footer">
-          <span id="about-version" class="about-version">v0.0.0</span>
-          <span class="about-sep">·</span>
-          <span class="about-credit">Elysian Labs</span>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" class="modal-btn modal-btn-cancel" id="about-close">Close</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Question Modal (for AskUserQuestion) -->
-    <div id="question-modal">
-      <div class="modal-content question-modal-content">
-        <div class="modal-header">
-          <span class="question-badge" id="question-badge">Question</span>
-          <h3 id="question-header">Claude needs input</h3>
-        </div>
-
-        <div class="question-text" id="question-text"></div>
-
-        <div class="question-options" id="question-options">
-          <!-- Options will be inserted here -->
-        </div>
-
-        <div class="question-other">
-          <label for="question-other-input">Or type your own response:</label>
-          <textarea id="question-other-input" placeholder="Type here..." rows="2"></textarea>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" class="modal-btn modal-btn-cancel" id="question-skip">Skip</button>
-          <button type="button" class="modal-btn modal-btn-create" id="question-send-other">Send</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Permission Modal (for tool permissions) -->
-    <div id="permission-modal">
-      <div class="modal-content permission-modal-content">
-        <div class="modal-header">
-          <span class="permission-badge">Permission Required</span>
-          <h3>Allow <span class="permission-tool" id="permission-tool">Tool</span>?</h3>
-        </div>
-
-        <div class="permission-context" id="permission-context">
-          <!-- Context will be inserted here -->
-        </div>
-
-        <div class="permission-buttons" id="permission-buttons">
-          <!-- Buttons will be generated dynamically based on options -->
-        </div>
-      </div>
-    </div>
-
-    <!-- Zone Info Modal (for session details) -->
-    <div id="zone-info-modal">
-      <div class="modal-content zone-info-modal-content">
-        <div class="modal-header">
-          <h3>Zone Info</h3>
-          <button type="button" class="zone-info-close-btn" id="zone-info-close">&times;</button>
-        </div>
-        <div class="zone-info-body" id="zone-info-content">
-          <!-- Content will be inserted dynamically -->
         </div>
       </div>
     </div>
@@ -359,49 +142,16 @@
       </div>
     </div>
 
-    <!-- Zone Timeout Modal (shown when zone creation takes too long) -->
-    <div id="zone-timeout-modal">
-      <div class="modal-content zone-timeout-content">
-        <div class="modal-header">
-          <h3>Zone Not Responding</h3>
-        </div>
-        <p class="zone-timeout-text">
-          The zone is taking longer than expected to start. Claude Code may be stuck or waiting for input.
-        </p>
-        <div class="about-section">
-          <div class="about-section-title">Troubleshooting</div>
-          <div class="about-commands">
-            <div class="about-cmd"><code>tmux ls</code><span>List sessions</span></div>
-            <div class="about-cmd"><code>tmux attach -t <em>session</em></code><span>See what's happening</span></div>
-          </div>
-        </div>
-        <p class="zone-timeout-hint">Also ensure your Claude Code is up to date.</p>
-        <div class="modal-actions">
-          <button type="button" class="modal-btn modal-btn-cancel" id="zone-timeout-close">Close</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Offline Banner (shown when user tries to interact while disconnected) -->
-    <div id="offline-banner" class="offline-banner hidden">
-      <span>Not connected to local server</span>
-      <button id="offline-banner-dismiss">×</button>
-    </div>
-
     <!-- Not Connected Overlay -->
     <div id="not-connected-overlay">
       <div class="not-connected-content">
         <h2>Vibecraft!</h2>
         <p class="not-connected-description">
-          Vibecraft is a 3D app to watch and manage Claude Code instances.
-        </p>
-        <p class="not-connected-privacy">
-          Vibecraft syncs with CC instances running on your local machine. Vibecraft is an interface - no files or code
-          are sent to this server.
+          A 3D monitor for the Claude Code sessions running in your terminals.
         </p>
         <div class="not-connected-setup">
-          <p class="not-connected-setup-label">Get started:</p>
-          <div class="not-connected-code">npx vibecraft setup && npx vibecraft</div>
+          <p class="not-connected-setup-label">The vibecraft server isn't running. Start it with:</p>
+          <div class="not-connected-code">rust/target/release/vibecraft-server</div>
         </div>
         <div class="not-connected-actions">
           <button class="not-connected-btn not-connected-btn-retry" id="retry-connection">↻ Reconnect</button>
@@ -409,9 +159,6 @@
         </div>
       </div>
     </div>
-
-    <!-- Toast notifications -->
-    <div id="toast-container"></div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

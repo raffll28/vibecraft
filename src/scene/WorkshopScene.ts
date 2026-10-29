@@ -12,6 +12,7 @@ import { HexGrid } from '../utils/HexGrid'
 import { ZoneNotifications, type NotificationOptions } from './ZoneNotifications'
 import { StationPanels } from './StationPanels'
 import { drawMode } from '../ui/DrawMode'
+import type { ZoneStatus } from '../events/zoneStatus'
 import {
   addBookshelfDetails,
   addTerminalDetails,
@@ -34,6 +35,13 @@ export interface Station {
 
 export type AttentionReason = 'question' | 'finished' | 'error' | null
 
+/** Traffic light colors for zone status */
+const STATUS_LIGHT: Record<ZoneStatus, number> = {
+  idle: 0x22c55e,       // green: free
+  working: 0xfacc15,    // yellow: busy
+  attention: 0xef4444,  // red: needs the user
+}
+
 export interface Zone {
   id: string
   group: THREE.Group
@@ -44,13 +52,13 @@ export interface Zone {
   color: number
   position: THREE.Vector3
   label?: THREE.Sprite
-  gitLabel?: THREE.Sprite  // Git status display on floor
+  labelText?: string  // Name shown on the label (redrawn when the status changes)
   pulseIntensity: number // For activity pulse effect
   attentionReason: AttentionReason // Persistent attention state
   attentionTime: number // Time accumulator for attention pulse
   particles: THREE.Points
   particleVelocities: Float32Array
-  status: 'idle' | 'working' | 'waiting' | 'attention' | 'offline'
+  status: ZoneStatus
   // Animation state for enter/exit transitions
   animationState?: 'entering' | 'exiting'
   animationProgress?: number // 0 to 1
@@ -91,32 +99,6 @@ export class WorkshopScene {
   public zones: Map<string, Zone> = new Map()
   public hexGrid: HexGrid  // Hex grid for zone placement
   private zoneColorIndex = 0  // For cycling through colors
-
-  // Pending zones (loading animation before zone is created)
-  private pendingZones: Map<string, {
-    group: THREE.Group
-    spinner: THREE.Group
-    ring: THREE.Line
-    position: THREE.Vector3
-    age: number
-  }> = new Map()
-
-  // Pending zone animation constants
-  private static readonly PENDING = {
-    DOT_COUNT: 3,
-    DOT_RADIUS: 0.3,
-    DOT_SEGMENTS: 8,
-    SPINNER_RADIUS: 1.5,
-    SPINNER_HEIGHT: 0.5,
-    ROTATION_SPEED: 2,
-    PULSE_SPEED: 3,
-    SCALE_BASE: 0.8,
-    SCALE_RANGE: 0.3,
-    BOB_RANGE: 0.2,
-    RING_OPACITY_BASE: 0.3,
-    RING_OPACITY_RANGE: 0.2,
-    RING_PULSE_SPEED: 2,
-  } as const
 
   // Camera modes
   public cameraMode: CameraMode = 'focused'
@@ -356,117 +338,6 @@ export class WorkshopScene {
   }
 
   /**
-   * Create a pending zone with loading animation
-   * Shows while waiting for the real zone to be created
-   */
-  createPendingZone(id: string, hintPosition?: { x: number; z: number }): void {
-    if (this.pendingZones.has(id)) return
-
-    const P = WorkshopScene.PENDING
-
-    // Find position - use hint or next spiral position (peek without occupying)
-    const hexCoord = hintPosition
-      ? this.hexGrid.findNearestFreeFromCartesian(hintPosition.x, hintPosition.z)
-      : this.hexGrid.peekNextInSpiral()
-
-    const { x, z } = this.hexGrid.axialToCartesian(hexCoord)
-    const position = new THREE.Vector3(x, 0, z)
-
-    const group = new THREE.Group()
-    group.position.copy(position)
-
-    // Translucent hexagon outline (reuse hex shape helper)
-    const ring = this.createHexOutline(10, 0x4ac8e8, 0.5)
-    group.add(ring)
-
-    // Spinning loader - dots arranged in a circle
-    const spinner = new THREE.Group()
-    const dotGeom = new THREE.SphereGeometry(P.DOT_RADIUS, P.DOT_SEGMENTS, P.DOT_SEGMENTS)
-    const dotMat = new THREE.MeshBasicMaterial({ color: 0x4ac8e8, opacity: 0.8, transparent: true })
-
-    for (let i = 0; i < P.DOT_COUNT; i++) {
-      const dot = new THREE.Mesh(dotGeom, dotMat.clone())
-      const angle = (Math.PI * 2 / P.DOT_COUNT) * i
-      dot.position.set(
-        Math.cos(angle) * P.SPINNER_RADIUS,
-        P.SPINNER_HEIGHT,
-        Math.sin(angle) * P.SPINNER_RADIUS
-      )
-      spinner.add(dot)
-    }
-    group.add(spinner)
-
-    this.scene.add(group)
-    this.pendingZones.set(id, { group, spinner, ring, position, age: 0 })
-  }
-
-  /**
-   * Create a hexagon outline (reusable helper)
-   */
-  private createHexOutline(radius: number, color: number, opacity: number): THREE.Line {
-    const points: THREE.Vector3[] = []
-    for (let i = 0; i <= 6; i++) {
-      const angle = (Math.PI / 3) * i - Math.PI / 6  // Pointy-top
-      points.push(new THREE.Vector3(
-        Math.cos(angle) * radius,
-        0.1,
-        Math.sin(angle) * radius
-      ))
-    }
-    return new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(points),
-      new THREE.LineBasicMaterial({ color, opacity, transparent: true })
-    )
-  }
-
-  /**
-   * Remove a pending zone (called when real zone is created or on failure)
-   * @param id - Identifier of the pending zone
-   */
-  removePendingZone(id: string): void {
-    const pending = this.pendingZones.get(id)
-    if (!pending) return
-
-    this.scene.remove(pending.group)
-    pending.group.traverse(obj => {
-      if (obj instanceof THREE.Mesh) {
-        obj.geometry?.dispose()
-        if (obj.material instanceof THREE.Material) obj.material.dispose()
-      }
-      if (obj instanceof THREE.Line) {
-        obj.geometry?.dispose()
-        if (obj.material instanceof THREE.Material) obj.material.dispose()
-      }
-    })
-    this.pendingZones.delete(id)
-  }
-
-  /**
-   * Update pending zone animations (called from render loop)
-   */
-  private updatePendingZones(delta: number): void {
-    const P = WorkshopScene.PENDING
-
-    for (const pending of this.pendingZones.values()) {
-      pending.age += delta
-
-      // Rotate spinner group
-      pending.spinner.rotation.y += delta * P.ROTATION_SPEED
-
-      // Pulse each dot (scale + vertical bob, phase-offset)
-      pending.spinner.children.forEach((dot, i) => {
-        const phase = pending.age * P.PULSE_SPEED + i * (Math.PI * 2 / P.DOT_COUNT)
-        dot.scale.setScalar(P.SCALE_BASE + Math.sin(phase) * P.SCALE_RANGE)
-        dot.position.y = P.SPINNER_HEIGHT + Math.sin(phase) * P.BOB_RANGE
-      })
-
-      // Pulse ring opacity
-      const ringMat = pending.ring.material as THREE.LineBasicMaterial
-      ringMat.opacity = P.RING_OPACITY_BASE + Math.sin(pending.age * P.RING_PULSE_SPEED) * P.RING_OPACITY_RANGE
-    }
-  }
-
-  /**
    * Create a new zone for a session
    * @param sessionId - Unique session identifier
    * @param options - Optional color and hint position for direction-aware placement
@@ -475,21 +346,6 @@ export class WorkshopScene {
     // Check if zone already exists
     const existing = this.zones.get(sessionId)
     if (existing) return existing
-
-    // Remove any pending zone with matching position
-    // We check all pending zones and remove ones near this zone's target position
-    for (const [pendingId, pending] of this.pendingZones) {
-      if (options?.hintPosition) {
-        const dist = Math.hypot(
-          pending.position.x - options.hintPosition.x,
-          pending.position.z - options.hintPosition.z
-        )
-        if (dist < 25) {  // Within roughly one hex diameter
-          this.removePendingZone(pendingId)
-          break
-        }
-      }
-    }
 
     // Determine hex position using direction-aware placement or spiral fallback
     const hexCoord = options?.hintPosition
@@ -527,12 +383,6 @@ export class WorkshopScene {
     label.position.set(0, 4, 0)
     group.add(label)
 
-    // Create git status label on floor
-    const gitLabel = this.createGitLabel()
-    gitLabel.position.set(0, 0.15, 2.5)  // Near front edge of hex
-    gitLabel.visible = false  // Hidden until we have git data
-    group.add(gitLabel)
-
     // Create particle system for activity effects
     const { particles, velocities } = this.createParticleSystem(zoneColor)
     group.add(particles)
@@ -559,7 +409,6 @@ export class WorkshopScene {
       color: zoneColor,
       position,
       label,
-      gitLabel,
       pulseIntensity: 0,
       attentionReason: null,
       attentionTime: 0,
@@ -1329,7 +1178,8 @@ export class WorkshopScene {
   }
 
   /**
-   * Draw glowing text label - no box, just text with glow effect
+   * Draw glowing text label - no box, just text with glow effect, and a
+   * status light (traffic light color) to the left of the text
    */
   private drawLabelShape(
     ctx: CanvasRenderingContext2D,
@@ -1337,7 +1187,8 @@ export class WorkshopScene {
     height: number,
     color: number,
     text: string,
-    keybind?: string
+    keybind?: string,
+    statusColor?: number
   ): void {
     const colorHex = `#${color.toString(16).padStart(6, '0')}`
 
@@ -1406,6 +1257,21 @@ export class WorkshopScene {
     // Main text - crisp white
     ctx.fillStyle = '#ffffff'
     ctx.fillText(fullText, centerX, centerY)
+
+    // Status light left of the text
+    if (statusColor !== undefined) {
+      const statusHex = `#${statusColor.toString(16).padStart(6, '0')}`
+      const dotX = Math.max(18, centerX - ctx.measureText(fullText).width / 2 - 26)
+      ctx.save()
+      ctx.shadowColor = statusHex
+      ctx.shadowBlur = 18
+      ctx.fillStyle = statusHex
+      ctx.beginPath()
+      ctx.arc(dotX, centerY, 13, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fill()  // Double for a stronger glow
+      ctx.restore()
+    }
   }
 
   /**
@@ -1415,6 +1281,7 @@ export class WorkshopScene {
   updateZoneLabel(sessionId: string, newLabel: string, keybind?: string): void {
     const zone = this.zones.get(sessionId)
     if (!zone || !zone.label) return
+    zone.labelText = newLabel
 
     // Redraw the label with new text using shared drawing function
     const canvas = document.createElement('canvas')
@@ -1422,7 +1289,7 @@ export class WorkshopScene {
     canvas.width = 512
     canvas.height = 96
 
-    this.drawLabelShape(ctx, canvas.width, canvas.height, zone.color, newLabel, keybind)
+    this.drawLabelShape(ctx, canvas.width, canvas.height, zone.color, newLabel, keybind, STATUS_LIGHT[zone.status])
 
     // Update texture
     const material = zone.label.material as THREE.SpriteMaterial
@@ -1712,109 +1579,6 @@ export class WorkshopScene {
   }
 
   /**
-   * Create git status label sprite (initially blank)
-   */
-  private createGitLabel(): THREE.Sprite {
-    const canvas = document.createElement('canvas')
-    canvas.width = 256
-    canvas.height = 48
-
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.minFilter = THREE.LinearFilter
-    texture.magFilter = THREE.LinearFilter
-
-    const material = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: false,
-      opacity: 0.9,
-    })
-    const sprite = new THREE.Sprite(material)
-    sprite.scale.set(3, 0.6, 1)
-
-    return sprite
-  }
-
-  /**
-   * Update git status display for a zone
-   */
-  updateZoneGitStatus(
-    sessionId: string,
-    gitStatus: { branch: string; linesAdded: number; linesRemoved: number; totalFiles: number; isRepo: boolean } | null
-  ): void {
-    const zone = this.zones.get(sessionId)
-    if (!zone || !zone.gitLabel) return
-
-    // Hide if no git data or not a repo
-    if (!gitStatus || !gitStatus.isRepo) {
-      zone.gitLabel.visible = false
-      return
-    }
-
-    // Format: "main +142/-37" or "main • clean" if no changes
-    const hasChanges = gitStatus.linesAdded > 0 || gitStatus.linesRemoved > 0 || gitStatus.totalFiles > 0
-    let text: string
-    let color: string
-
-    if (hasChanges) {
-      text = `${gitStatus.branch} +${gitStatus.linesAdded}/-${gitStatus.linesRemoved}`
-      // Color based on amount of changes
-      const changeScore = gitStatus.linesAdded + gitStatus.linesRemoved
-      if (changeScore > 500) {
-        color = '#f87171'  // Red - lots of changes
-      } else if (changeScore > 100) {
-        color = '#fbbf24'  // Amber - moderate changes
-      } else {
-        color = '#4ade80'  // Green - small changes
-      }
-    } else {
-      text = `${gitStatus.branch} ✓`
-      color = '#9ca3af'  // Gray - clean
-    }
-
-    // Draw the label
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')!
-    canvas.width = 256
-    canvas.height = 48
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    // Semi-transparent background pill
-    const textWidth = ctx.measureText(text).width || 100
-    ctx.font = '600 20px ui-monospace, monospace'
-    const measuredWidth = ctx.measureText(text).width
-    const pillWidth = Math.min(canvas.width - 8, measuredWidth + 24)
-    const pillX = (canvas.width - pillWidth) / 2
-    const pillY = 8
-    const pillHeight = 32
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-    ctx.beginPath()
-    ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 6)
-    ctx.fill()
-
-    // Text
-    ctx.fillStyle = color
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(text, canvas.width / 2, canvas.height / 2)
-
-    // Update texture
-    const material = zone.gitLabel.material as THREE.SpriteMaterial
-    if (material.map) {
-      material.map.dispose()
-    }
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.minFilter = THREE.LinearFilter
-    texture.magFilter = THREE.LinearFilter
-    material.map = texture
-    material.needsUpdate = true
-
-    zone.gitLabel.visible = true
-  }
-
-  /**
    * Trigger activity pulse on a zone
    */
   pulseZone(sessionId: string): void {
@@ -1868,13 +1632,11 @@ export class WorkshopScene {
     const floorMat = zone.floor.material as THREE.MeshStandardMaterial
     const ringMat = zone.ring.material as THREE.MeshBasicMaterial
 
-    // Status color mappings (ice/cyan theme)
+    // Traffic light: green free, yellow busy, red needs the user
     const statusColors: Record<Zone['status'], { emissive: number; intensity: number; ring: number; ringOpacity: number }> = {
-      idle: { emissive: zone.color, intensity: 0.02, ring: zone.color, ringOpacity: 0.4 },
-      working: { emissive: 0x22d3ee, intensity: 0.08, ring: 0x22d3ee, ringOpacity: 0.5 },
-      waiting: { emissive: 0xfbbf24, intensity: 0.06, ring: 0xfbbf24, ringOpacity: 0.6 },
-      attention: { emissive: 0xf87171, intensity: 0.10, ring: 0xf87171, ringOpacity: 0.7 },
-      offline: { emissive: 0x404050, intensity: 0.01, ring: 0x404050, ringOpacity: 0.2 },
+      idle: { emissive: zone.color, intensity: 0.02, ring: STATUS_LIGHT.idle, ringOpacity: 0.45 },
+      working: { emissive: STATUS_LIGHT.working, intensity: 0.06, ring: STATUS_LIGHT.working, ringOpacity: 0.55 },
+      attention: { emissive: STATUS_LIGHT.attention, intensity: 0.10, ring: STATUS_LIGHT.attention, ringOpacity: 0.75 },
     }
 
     const colors = statusColors[status]
@@ -1886,6 +1648,11 @@ export class WorkshopScene {
     // Update ring to match (overrides attention pulse animation)
     ringMat.color.setHex(colors.ring)
     ringMat.opacity = colors.ringOpacity
+
+    // Redraw the label so its status light matches
+    if (zone.labelText !== undefined) {
+      this.updateZoneLabel(sessionId, zone.labelText)
+    }
   }
 
   /**
@@ -2538,9 +2305,6 @@ export class WorkshopScene {
 
       // Update station pulses
       this.updateStationPulses(delta)
-
-      // Update pending zones (loading animations)
-      this.updatePendingZones(delta)
 
       // Update floating notifications (legacy)
       this.updateNotifications(delta)

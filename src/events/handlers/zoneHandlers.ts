@@ -1,32 +1,41 @@
 /**
  * Zone Status Event Handlers
  *
- * Handles zone status updates (working, attention, etc.)
- * and attention states for questions and completion.
+ * Keeps each zone's traffic light (see zoneStatus.ts) in sync with its
+ * session's events. Red zones also pulse until the user acts.
  */
 
-import { eventBus } from '../EventBus'
-import type { StopEvent, UserPromptSubmitEvent } from '../../../shared/types'
+import { eventBus, type EventType } from '../EventBus'
+import { zoneStatusForEvent } from '../zoneStatus'
+import type { ClaudeEvent } from '../../../shared/types'
+
+const STATUS_EVENTS: EventType[] = [
+  'pre_tool_use',
+  'post_tool_use',
+  'user_prompt_submit',
+  'subagent_stop',
+  'pre_compact',
+  'stop',
+  'session_start',
+  'notification',
+]
 
 /**
  * Register zone status event handlers
  */
 export function registerZoneHandlers(): void {
-  // Set attention state when Claude stops (finished work)
-  eventBus.on('stop', (event: StopEvent, ctx) => {
-    if (!ctx.session || !ctx.scene) return
+  for (const type of STATUS_EVENTS) {
+    eventBus.on(type, (event: ClaudeEvent, ctx) => {
+      if (!ctx.session || !ctx.scene) return
+      const status = zoneStatusForEvent(event)
+      if (!status) return
 
-    // Set finished attention - agent completed its work
-    ctx.scene.setZoneAttention(event.sessionId, 'finished')
-    ctx.scene.setZoneStatus(event.sessionId, 'attention')  // Red glow
-  })
-
-  // Clear attention and set working when user submits prompt
-  eventBus.on('user_prompt_submit', (event: UserPromptSubmitEvent, ctx) => {
-    if (!ctx.session || !ctx.scene) return
-
-    // Clear attention - user is now engaged
-    ctx.scene.clearZoneAttention(event.sessionId)
-    ctx.scene.setZoneStatus(event.sessionId, 'working')  // Cyan glow
-  })
+      ctx.scene.setZoneStatus(event.sessionId, status)
+      if (status === 'attention') {
+        ctx.scene.setZoneAttention(event.sessionId, 'question')
+      } else {
+        ctx.scene.clearZoneAttention(event.sessionId)
+      }
+    })
+  }
 }

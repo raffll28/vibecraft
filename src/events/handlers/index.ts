@@ -8,7 +8,6 @@ import { registerNotificationHandlers } from './notificationHandlers'
 import { registerCharacterHandlers } from './characterHandlers'
 import { registerSubagentHandlers } from './subagentHandlers'
 import { registerZoneHandlers } from './zoneHandlers'
-import { registerFeedHandlers } from './feedHandlers'
 import { registerAnimationHandlers } from './animationHandlers'
 
 /**
@@ -20,7 +19,6 @@ export function registerAllHandlers(): void {
   registerCharacterHandlers()
   registerSubagentHandlers()
   registerZoneHandlers()
-  registerFeedHandlers()
   registerAnimationHandlers()
 }
 
@@ -30,6 +28,5 @@ export {
   registerCharacterHandlers,
   registerSubagentHandlers,
   registerZoneHandlers,
-  registerFeedHandlers,
   registerAnimationHandlers,
 }
