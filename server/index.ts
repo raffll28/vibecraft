@@ -2313,14 +2313,16 @@ function main() {
     }
     ws.send(JSON.stringify(tilesMsg))
 
-    // Send recent history - filtered to only include events from current managed sessions
+    // Send recent history - events from current managed sessions, plus recent
+    // events from external sessions (the client gives those view-only zones)
     const activeClaudeSessionIds = new Set(
       Array.from(managedSessions.values())
         .map(s => s.claudeSessionId)
         .filter(Boolean)
     )
+    const externalCutoff = Date.now() - DEFAULTS.EXTERNAL_SESSION_MAX_AGE_MS
     const filteredHistory = events
-      .filter(e => activeClaudeSessionIds.has(e.sessionId))
+      .filter(e => activeClaudeSessionIds.has(e.sessionId) || e.timestamp >= externalCutoff)
       .slice(-50)
     const historyMsg: ServerMessage = {
       type: 'history',
