@@ -1,36 +1,82 @@
 {
   "isOriginAllowed": [
-    { "input": "http://localhost:4002", "expected": true },
-    { "input": "http://localhost", "expected": true },
-    { "input": "https://localhost:8443", "expected": true },
-    { "input": "http://127.0.0.1:5173", "expected": true },
-    { "input": "https://vibecraft.sh", "expected": true },
-    { "input": "http://vibecraft.sh", "expected": false },
-    { "input": "https://evil.vibecraft.sh", "expected": false },
-    { "input": "https://vibecraft.sh.evil.com", "expected": false },
-    { "input": "http://localhost.evil.com", "expected": false },
-    { "input": "http://192.168.0.10:4002", "expected": false },
-    { "input": "null", "expected": false },
-    { "input": "not a url", "expected": false },
-    { "input": "", "expected": false },
-    { "input": null, "expected": false }
-  ],
-  "validateTmuxSession": [
-    { "input": "claude", "valid": true },
-    { "input": "vibecraft-a1b2_C3", "valid": true },
-    { "input": "", "valid": false },
-    { "input": "has space", "valid": false },
-    { "input": "semi;colon", "valid": false },
-    { "input": "dollar$(x)", "valid": false },
-    { "input": "dot.name", "valid": false },
-    { "input": "colon:name", "valid": false },
-    { "input": "ção", "valid": false }
+    {
+      "input": "http://localhost:4002",
+      "expected": true
+    },
+    {
+      "input": "http://localhost",
+      "expected": true
+    },
+    {
+      "input": "https://localhost:8443",
+      "expected": true
+    },
+    {
+      "input": "http://127.0.0.1:5173",
+      "expected": true
+    },
+    {
+      "input": "https://vibecraft.sh",
+      "expected": true
+    },
+    {
+      "input": "http://vibecraft.sh",
+      "expected": false
+    },
+    {
+      "input": "https://evil.vibecraft.sh",
+      "expected": false
+    },
+    {
+      "input": "https://vibecraft.sh.evil.com",
+      "expected": false
+    },
+    {
+      "input": "http://localhost.evil.com",
+      "expected": false
+    },
+    {
+      "input": "http://192.168.0.10:4002",
+      "expected": false
+    },
+    {
+      "input": "null",
+      "expected": false
+    },
+    {
+      "input": "not a url",
+      "expected": false
+    },
+    {
+      "input": "",
+      "expected": false
+    },
+    {
+      "input": null,
+      "expected": false
+    }
   ],
   "expandHome": [
-    { "input": "~", "expected": "$HOME" },
-    { "input": "~/a/b", "expected": "$HOME/a/b" },
-    { "input": "~user/a", "expected": "~user/a" },
-    { "input": "/abs/~/x", "expected": "/abs/~/x" },
-    { "input": "rel/path", "expected": "rel/path" }
+    {
+      "input": "~",
+      "expected": "$HOME"
+    },
+    {
+      "input": "~/a/b",
+      "expected": "$HOME/a/b"
+    },
+    {
+      "input": "~user/a",
+      "expected": "~user/a"
+    },
+    {
+      "input": "/abs/~/x",
+      "expected": "/abs/~/x"
+    },
+    {
+      "input": "rel/path",
+      "expected": "rel/path"
+    }
   ]
 }

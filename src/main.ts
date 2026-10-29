@@ -121,7 +121,7 @@ function getOrCreateSession(event: ClaudeEvent): SessionState | null {
   }
 
   // Events older than this don't create zones (avoids reviving old history)
-  const isRecent = Date.now() - event.timestamp < DEFAULTS.EXTERNAL_SESSION_MAX_AGE_MS
+  const isRecent = Date.now() - event.timestamp < DEFAULTS.SESSION_MAX_AGE_MS
   if (!isRecent || event.type === 'session_end') {
     return null
   }

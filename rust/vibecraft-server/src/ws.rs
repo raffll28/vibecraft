@@ -39,9 +39,9 @@ pub fn write_handshake(stream: &mut impl Write, res: &Response) -> io::Result<()
 }
 
 pub enum Message {
-    Text(String),
-    /// Binary payloads: no client sends them, so they're dropped
-    Binary(()),
+    /// A complete text or binary message. The server only pushes to clients,
+    /// so contents aren't kept, only read off the socket.
+    Data,
     Close,
 }
 
@@ -55,8 +55,8 @@ const OP_PONG: u8 = 0xA;
 /// Read the next data message, answering pings along the way.
 /// `writer` is used for pongs and must serialize with other writes.
 pub fn read_message(reader: &mut impl Read, mut pong: impl FnMut(Vec<u8>)) -> io::Result<Message> {
-    let mut message: Vec<u8> = Vec::new();
-    let mut message_op: Option<u8> = None;
+    let mut message_len = 0usize;
+    let mut in_message = false;
     loop {
         let mut head = [0u8; 2];
         reader.read_exact(&mut head)?;
@@ -76,7 +76,7 @@ pub fn read_message(reader: &mut impl Read, mut pong: impl FnMut(Vec<u8>)) -> io
             }
             n => u64::from(n),
         };
-        if len as usize > MAX_MESSAGE_BYTES || message.len() + len as usize > MAX_MESSAGE_BYTES {
+        if len as usize > MAX_MESSAGE_BYTES || message_len + len as usize > MAX_MESSAGE_BYTES {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "message too large",
@@ -100,22 +100,18 @@ pub fn read_message(reader: &mut impl Read, mut pong: impl FnMut(Vec<u8>)) -> io
             OP_CLOSE => return Ok(Message::Close),
             OP_TEXT | OP_BINARY | OP_CONTINUATION => {
                 if opcode != OP_CONTINUATION {
-                    message_op = Some(opcode);
-                    message.clear();
+                    in_message = true;
+                    message_len = 0;
                 }
-                message.extend_from_slice(&payload);
+                message_len += payload.len();
                 if fin {
-                    return match message_op {
-                        Some(OP_TEXT) => {
-                            String::from_utf8(message).map(Message::Text).map_err(|_| {
-                                io::Error::new(io::ErrorKind::InvalidData, "invalid UTF-8")
-                            })
-                        }
-                        Some(_) => Ok(Message::Binary(())),
-                        None => Err(io::Error::new(
+                    return if in_message {
+                        Ok(Message::Data)
+                    } else {
+                        Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "stray continuation",
-                        )),
+                        ))
                     };
                 }
             }
@@ -179,7 +175,7 @@ mod tests {
         input.extend(masked(OP_CONTINUATION, true, b"lo"));
         let mut pongs = Vec::new();
         let msg = read_message(&mut input.as_slice(), |p| pongs.push(p)).unwrap();
-        assert!(matches!(msg, Message::Text(t) if t == "hello"));
+        assert!(matches!(msg, Message::Data));
         assert_eq!(pongs, vec![b"p".to_vec()]);
     }
 

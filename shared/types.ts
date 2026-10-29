@@ -148,31 +148,12 @@ export type ClaudeEvent =
 // WebSocket Messages
 // ============================================================================
 
-/** Permission option (number + label) */
-export interface PermissionOption {
-  number: string   // "1", "2", "3"
-  label: string    // "Yes", "Yes, and always allow...", "No"
-}
-
 /** Server -> Client messages */
 export type ServerMessage =
   | { type: 'event'; payload: ClaudeEvent }
   | { type: 'history'; payload: ClaudeEvent[] }
   | { type: 'connected'; payload: { sessionId: string } }
-  | { type: 'error'; payload: { message: string } }
-  | { type: 'tokens'; payload: { session: string; current: number; cumulative: number } }
-  | { type: 'sessions'; payload: ManagedSession[] }
-  | { type: 'session_update'; payload: ManagedSession }
-  | { type: 'permission_prompt'; payload: { sessionId: string; tool: string; context: string; options: PermissionOption[] } }
-  | { type: 'permission_resolved'; payload: { sessionId: string } }
   | { type: 'text_tiles'; payload: TextTile[] }
-
-/** Client -> Server messages */
-export type ClientMessage =
-  | { type: 'subscribe'; payload?: { sessionId?: string } }
-  | { type: 'get_history'; payload?: { limit?: number } }
-  | { type: 'ping' }
-  | { type: 'permission_response'; payload: { sessionId: string; response: string } }
 
 // ============================================================================
 // Visualization State
@@ -230,161 +211,6 @@ export interface BashToolInput {
   run_in_background?: boolean
 }
 
-export interface WriteToolInput {
-  file_path: string
-  content: string
-}
-
-export interface EditToolInput {
-  file_path: string
-  old_string: string
-  new_string: string
-  replace_all?: boolean
-}
-
-export interface ReadToolInput {
-  file_path: string
-  offset?: number
-  limit?: number
-}
-
-export interface TaskToolInput {
-  description: string
-  prompt: string
-  subagent_type: string
-}
-
-// ============================================================================
-// Session Management (Orchestration)
-// ============================================================================
-
-/** Status of a managed Claude session */
-export type SessionStatus = 'idle' | 'working' | 'waiting' | 'offline'
-
-/** A managed Claude session */
-export interface ManagedSession {
-  /** Our internal ID (UUID) */
-  id: string
-  /** User-friendly name ("Frontend", "Tests") */
-  name: string
-  /** Actual tmux session name */
-  tmuxSession: string
-  /** Current status */
-  status: SessionStatus
-  /** Claude Code session ID (from events, may differ from our ID) */
-  claudeSessionId?: string
-  /** Creation timestamp */
-  createdAt: number
-  /** Last activity timestamp */
-  lastActivity: number
-  /** Working directory */
-  cwd?: string
-  /** Current tool being used (if working) */
-  currentTool?: string
-  /** Token count for this session */
-  tokens?: {
-    current: number
-    cumulative: number
-  }
-  /** Git status for this session's working directory */
-  gitStatus?: GitStatus
-  /** Zone position in hex grid (for layout persistence) */
-  zonePosition?: {
-    q: number
-    r: number
-  }
-}
-
-/** Git repository status */
-export interface GitStatus {
-  /** Current branch name */
-  branch: string
-  /** Commits ahead of upstream */
-  ahead: number
-  /** Commits behind upstream */
-  behind: number
-  /** Staged file counts */
-  staged: {
-    added: number
-    modified: number
-    deleted: number
-  }
-  /** Unstaged file counts */
-  unstaged: {
-    added: number
-    modified: number
-    deleted: number
-  }
-  /** Untracked file count */
-  untracked: number
-  /** Total changed files (staged + unstaged + untracked) */
-  totalFiles: number
-  /** Lines added (staged + unstaged) */
-  linesAdded: number
-  /** Lines removed (staged + unstaged) */
-  linesRemoved: number
-  /** Last commit timestamp (unix seconds) */
-  lastCommitTime: number | null
-  /** Last commit message (first line) */
-  lastCommitMessage: string | null
-  /** Whether directory is a git repo */
-  isRepo: boolean
-  /** Last time we checked (unix ms) */
-  lastChecked: number
-}
-
-/** Known project directory for autocomplete */
-export interface KnownProject {
-  /** Absolute path to the directory */
-  path: string
-  /** Display name (defaults to directory basename) */
-  name: string
-  /** Last time this project was used (unix ms) */
-  lastUsed: number
-  /** Number of times this project has been opened */
-  useCount: number
-}
-
-/** Request to create a new session */
-export interface CreateSessionRequest {
-  name?: string
-  cwd?: string
-  /** Claude command flags */
-  flags?: {
-    continue?: boolean        // -c (continue last conversation)
-    skipPermissions?: boolean  // --dangerously-skip-permissions
-    chrome?: boolean        // --chrome
-  }
-}
-
-/** Request to update a session */
-export interface UpdateSessionRequest {
-  name?: string
-  zonePosition?: {
-    q: number
-    r: number
-  }
-}
-
-/** Request to send a prompt to a session */
-export interface SessionPromptRequest {
-  prompt: string
-  send?: boolean
-}
-
-/** Response for session operations */
-export interface SessionResponse {
-  ok: boolean
-  session?: ManagedSession
-  error?: string
-}
-
-/** Response for listing sessions */
-export interface SessionListResponse {
-  ok: boolean
-  sessions: ManagedSession[]
-}
-
 // ============================================================================
 // Text Tiles (Grid Labels)
 // ============================================================================
@@ -404,46 +230,4 @@ export interface TextTile {
   color?: string
   /** Creation timestamp */
   createdAt: number
-}
-
-/** Request to create a text tile */
-export interface CreateTextTileRequest {
-  text: string
-  position: {
-    q: number
-    r: number
-  }
-  color?: string
-}
-
-/** Request to update a text tile */
-export interface UpdateTextTileRequest {
-  text?: string
-  position?: {
-    q: number
-    r: number
-  }
-  color?: string
-}
-
-// ============================================================================
-// Configuration
-// ============================================================================
-
-export interface VibecraftConfig {
-  /** WebSocket server port */
-  serverPort: number
-  /** Path to events JSONL file */
-  eventsFile: string
-  /** Maximum events to keep in memory */
-  maxEventsInMemory: number
-  /** Enable debug logging */
-  debug: boolean
-}
-
-export const DEFAULT_CONFIG: VibecraftConfig = {
-  serverPort: 4003,
-  eventsFile: './data/events.jsonl',
-  maxEventsInMemory: 1000,
-  debug: false,
 }

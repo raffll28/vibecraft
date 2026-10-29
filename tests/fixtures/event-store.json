@@ -4,108 +4,432 @@
       "name": "duplicates are ignored",
       "maxEvents": 10,
       "steps": [
-        { "add": { "id": "a", "timestamp": 1, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "a", "timestamp": 2, "type": "stop", "sessionId": "s" }, "expect": "duplicate" },
-        { "add": { "id": "b", "timestamp": 3, "type": "stop", "sessionId": "s" }, "expect": "added" }
+        {
+          "add": {
+            "id": "a",
+            "timestamp": 1,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "a",
+            "timestamp": 2,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "duplicate"
+        },
+        {
+          "add": {
+            "id": "b",
+            "timestamp": 3,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        }
       ],
-      "expectedIds": ["a", "b"]
+      "expectedIds": [
+        "a",
+        "b"
+      ]
     },
     {
       "name": "post_tool_use gets the duration since its pre_tool_use, once",
       "maxEvents": 10,
       "steps": [
-        { "add": { "id": "p1", "timestamp": 1000, "type": "pre_tool_use", "sessionId": "s", "toolUseId": "t1" }, "expect": "added" },
-        { "add": { "id": "q1", "timestamp": 1250, "type": "post_tool_use", "sessionId": "s", "toolUseId": "t1" }, "expect": { "duration": 250 } },
-        { "add": { "id": "q1b", "timestamp": 1300, "type": "post_tool_use", "sessionId": "s", "toolUseId": "t1" }, "expect": { "duration": null } },
-        { "add": { "id": "q2", "timestamp": 1400, "type": "post_tool_use", "sessionId": "s", "toolUseId": "never-started" }, "expect": { "duration": null } }
+        {
+          "add": {
+            "id": "p1",
+            "timestamp": 1000,
+            "type": "pre_tool_use",
+            "sessionId": "s",
+            "toolUseId": "t1"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "q1",
+            "timestamp": 1250,
+            "type": "post_tool_use",
+            "sessionId": "s",
+            "toolUseId": "t1"
+          },
+          "expect": {
+            "duration": 250
+          }
+        },
+        {
+          "add": {
+            "id": "q1b",
+            "timestamp": 1300,
+            "type": "post_tool_use",
+            "sessionId": "s",
+            "toolUseId": "t1"
+          },
+          "expect": {
+            "duration": null
+          }
+        },
+        {
+          "add": {
+            "id": "q2",
+            "timestamp": 1400,
+            "type": "post_tool_use",
+            "sessionId": "s",
+            "toolUseId": "never-started"
+          },
+          "expect": {
+            "duration": null
+          }
+        }
       ],
-      "expectedIds": ["p1", "q1", "q1b", "q2"]
+      "expectedIds": [
+        "p1",
+        "q1",
+        "q1b",
+        "q2"
+      ]
     },
     {
       "name": "durations pair by toolUseId, not by order",
       "maxEvents": 10,
       "steps": [
-        { "add": { "id": "p1", "timestamp": 100, "type": "pre_tool_use", "sessionId": "s", "toolUseId": "t1" }, "expect": "added" },
-        { "add": { "id": "p2", "timestamp": 150, "type": "pre_tool_use", "sessionId": "s", "toolUseId": "t2" }, "expect": "added" },
-        { "add": { "id": "q2", "timestamp": 160, "type": "post_tool_use", "sessionId": "s", "toolUseId": "t2" }, "expect": { "duration": 10 } },
-        { "add": { "id": "q1", "timestamp": 400, "type": "post_tool_use", "sessionId": "s", "toolUseId": "t1" }, "expect": { "duration": 300 } }
+        {
+          "add": {
+            "id": "p1",
+            "timestamp": 100,
+            "type": "pre_tool_use",
+            "sessionId": "s",
+            "toolUseId": "t1"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "p2",
+            "timestamp": 150,
+            "type": "pre_tool_use",
+            "sessionId": "s",
+            "toolUseId": "t2"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "q2",
+            "timestamp": 160,
+            "type": "post_tool_use",
+            "sessionId": "s",
+            "toolUseId": "t2"
+          },
+          "expect": {
+            "duration": 10
+          }
+        },
+        {
+          "add": {
+            "id": "q1",
+            "timestamp": 400,
+            "type": "post_tool_use",
+            "sessionId": "s",
+            "toolUseId": "t1"
+          },
+          "expect": {
+            "duration": 300
+          }
+        }
       ],
-      "expectedIds": ["p1", "p2", "q2", "q1"]
+      "expectedIds": [
+        "p1",
+        "p2",
+        "q2",
+        "q1"
+      ]
     },
     {
       "name": "only the newest maxEvents are kept",
       "maxEvents": 3,
       "steps": [
-        { "add": { "id": "e1", "timestamp": 1, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e2", "timestamp": 2, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e3", "timestamp": 3, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e4", "timestamp": 4, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e5", "timestamp": 5, "type": "stop", "sessionId": "s" }, "expect": "added" }
+        {
+          "add": {
+            "id": "e1",
+            "timestamp": 1,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e2",
+            "timestamp": 2,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e3",
+            "timestamp": 3,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e4",
+            "timestamp": 4,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e5",
+            "timestamp": 5,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        }
       ],
-      "expectedIds": ["e3", "e4", "e5"]
+      "expectedIds": [
+        "e3",
+        "e4",
+        "e5"
+      ]
     },
     {
       "name": "seen ids are bounded: past 2x maxEvents only the newest maxEvents are remembered",
       "maxEvents": 2,
       "steps": [
-        { "add": { "id": "e1", "timestamp": 1, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e2", "timestamp": 2, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e3", "timestamp": 3, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e4", "timestamp": 4, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e5", "timestamp": 5, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e1", "timestamp": 6, "type": "stop", "sessionId": "s" }, "expect": "added" },
-        { "add": { "id": "e5", "timestamp": 7, "type": "stop", "sessionId": "s" }, "expect": "duplicate" }
+        {
+          "add": {
+            "id": "e1",
+            "timestamp": 1,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e2",
+            "timestamp": 2,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e3",
+            "timestamp": 3,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e4",
+            "timestamp": 4,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e5",
+            "timestamp": 5,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e1",
+            "timestamp": 6,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "added"
+        },
+        {
+          "add": {
+            "id": "e5",
+            "timestamp": 7,
+            "type": "stop",
+            "sessionId": "s"
+          },
+          "expect": "duplicate"
+        }
       ],
-      "expectedIds": ["e5", "e1"]
+      "expectedIds": [
+        "e5",
+        "e1"
+      ]
     },
     {
       "name": "other fields pass through untouched",
       "maxEvents": 10,
       "steps": [
-        { "add": { "id": "x", "timestamp": 1, "type": "user_prompt_submit", "sessionId": "s", "cwd": "/w", "prompt": "olá", "extra": { "n": [1, 2] } }, "expect": { "prompt": "olá", "extra": { "n": [1, 2] } } }
+        {
+          "add": {
+            "id": "x",
+            "timestamp": 1,
+            "type": "user_prompt_submit",
+            "sessionId": "s",
+            "cwd": "/w",
+            "prompt": "olá",
+            "extra": {
+              "n": [
+                1,
+                2
+              ]
+            }
+          },
+          "expect": {
+            "prompt": "olá",
+            "extra": {
+              "n": [
+                1,
+                2
+              ]
+            }
+          }
+        }
       ],
-      "expectedIds": ["x"]
+      "expectedIds": [
+        "x"
+      ]
     }
   ],
   "queries": {
     "events": [
-      { "id": "old-external", "timestamp": 1000, "type": "stop", "sessionId": "ext" },
-      { "id": "old-managed", "timestamp": 1000, "type": "stop", "sessionId": "managed" },
-      { "id": "new-external", "timestamp": 5000, "type": "stop", "sessionId": "ext" },
-      { "id": "new-managed", "timestamp": 5000, "type": "stop", "sessionId": "managed" },
-      { "id": "at-cutoff", "timestamp": 3000, "type": "stop", "sessionId": "other" }
+      {
+        "id": "old-external",
+        "timestamp": 1000,
+        "type": "stop",
+        "sessionId": "ext"
+      },
+      {
+        "id": "old-managed",
+        "timestamp": 1000,
+        "type": "stop",
+        "sessionId": "managed"
+      },
+      {
+        "id": "new-external",
+        "timestamp": 5000,
+        "type": "stop",
+        "sessionId": "ext"
+      },
+      {
+        "id": "new-managed",
+        "timestamp": 5000,
+        "type": "stop",
+        "sessionId": "managed"
+      },
+      {
+        "id": "at-cutoff",
+        "timestamp": 3000,
+        "type": "stop",
+        "sessionId": "other"
+      }
     ],
     "initialHistory": [
-      { "name": "managed sessions at any age, others only from the cutoff", "managed": ["managed"], "cutoff": 3000, "limit": 50, "expectedIds": ["old-managed", "new-external", "new-managed", "at-cutoff"] },
-      { "name": "limit keeps the newest", "managed": ["managed"], "cutoff": 3000, "limit": 2, "expectedIds": ["new-managed", "at-cutoff"] },
-      { "name": "no managed sessions", "managed": [], "cutoff": 4000, "limit": 50, "expectedIds": ["new-external", "new-managed"] }
-    ],
-    "recent": [
-      { "limit": 2, "expectedIds": ["new-managed", "at-cutoff"] },
-      { "limit": 100, "expectedIds": ["old-external", "old-managed", "new-external", "new-managed", "at-cutoff"] }
+      {
+        "name": "only events from the cutoff on",
+        "cutoff": 3000,
+        "limit": 50,
+        "expectedIds": [
+          "new-external",
+          "new-managed",
+          "at-cutoff"
+        ]
+      },
+      {
+        "name": "limit keeps the newest",
+        "cutoff": 3000,
+        "limit": 2,
+        "expectedIds": [
+          "new-managed",
+          "at-cutoff"
+        ]
+      },
+      {
+        "name": "nothing recent",
+        "cutoff": 9000,
+        "limit": 50,
+        "expectedIds": []
+      }
     ],
     "lastSessionId": "other"
   },
   "lineSplitter": [
     {
       "name": "complete lines, blank lines skipped",
-      "chunksHex": ["610a0a620a"],
-      "expected": [["a", "b"]]
+      "chunksHex": [
+        "610a0a620a"
+      ],
+      "expected": [
+        [
+          "a",
+          "b"
+        ]
+      ]
     },
     {
       "name": "partial line held until its newline arrives",
-      "chunksHex": ["6162", "63", "0a64"],
-      "expected": [[], [], ["abc"]]
+      "chunksHex": [
+        "6162",
+        "63",
+        "0a64"
+      ],
+      "expected": [
+        [],
+        [],
+        [
+          "abc"
+        ]
+      ]
     },
     {
       "name": "multibyte character split across chunks",
-      "chunksHex": ["c3a7f09f", "9a80c3a30a"],
-      "expected": [[], ["ç🚀ã"]]
+      "chunksHex": [
+        "c3a7f09f",
+        "9a80c3a30a"
+      ],
+      "expected": [
+        [],
+        [
+          "ç🚀ã"
+        ]
+      ]
     },
     {
       "name": "several lines in one chunk",
-      "chunksHex": ["310a320a330a34"],
-      "expected": [["1", "2", "3"]]
+      "chunksHex": [
+        "310a320a330a34"
+      ],
+      "expected": [
+        [
+          "1",
+          "2",
+          "3"
+        ]
+      ]
     }
   ]
 }

@@ -1,26 +1,13 @@
-//! Input validation and path helpers. Port of `server/validation.ts`.
+//! Origin check and path helpers.
 
-use std::fmt;
 use std::path::{Component, Path, PathBuf};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValidationError(pub String);
-
-impl fmt::Display for ValidationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for ValidationError {}
 
 /// Should a browser `Origin` be allowed (WebSocket and CORS)?
 ///
 /// Allows localhost and 127.0.0.1 on any port and https://vibecraft.sh.
-/// The TypeScript version parses with WHATWG `new URL`, which also accepts
-/// odd spellings such as `http://127.1` or `http://user@localhost`; this one
-/// rejects them. Stricter is the safe direction for an allowlist, and browsers
-/// always send origins in canonical form.
+/// Stricter than WHATWG URL parsing: odd spellings such as `http://127.1` or
+/// `http://user@localhost` are rejected. That's the safe direction for an
+/// allowlist, and browsers always send origins in canonical form.
 pub fn is_origin_allowed(origin: Option<&str>) -> bool {
     let Some(origin) = origin else {
         return false;
@@ -67,21 +54,6 @@ pub fn is_origin_allowed(origin: Option<&str>) -> bool {
     host == "vibecraft.sh" && scheme == "https"
 }
 
-/// Validate a tmux session name: alphanumerics, underscore and hyphen only
-pub fn validate_tmux_session(name: &str) -> Result<&str, ValidationError> {
-    if !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    {
-        Ok(name)
-    } else {
-        Err(ValidationError(format!(
-            "Invalid tmux session name: {name}"
-        )))
-    }
-}
-
 /// Expand a leading `~` or `~/` to $HOME
 pub fn expand_home(path: &str) -> String {
     if path == "~" || path.starts_with("~/") {
@@ -95,7 +67,7 @@ pub fn expand_home(path: &str) -> String {
     }
 }
 
-/// Node's `path.resolve`: absolute and lexically normalized (no symlinks)
+/// Absolute and lexically normalized, like Node's `path.resolve` (no symlinks)
 pub fn resolve(path: &str) -> PathBuf {
     let base = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     let joined = if Path::new(path).is_absolute() {
@@ -114,32 +86,6 @@ pub fn resolve(path: &str) -> PathBuf {
         }
     }
     out
-}
-
-/// Validate a directory for use as a tmux session's working directory:
-/// it must exist, be a directory, and contain no shell metacharacters.
-pub fn validate_directory_path(input: &str) -> Result<PathBuf, ValidationError> {
-    let resolved = resolve(&expand_home(input));
-    if !resolved.exists() {
-        return Err(ValidationError(format!(
-            "Directory does not exist: {input}"
-        )));
-    }
-    if !resolved.is_dir() {
-        return Err(ValidationError(format!("Path is not a directory: {input}")));
-    }
-    // JS: /[;&|`$(){}[\]<>\\'"!#*?]/ - even with execFile, tmux hands
-    // commands to a shell
-    const DANGEROUS: &[char] = &[
-        ';', '&', '|', '`', '$', '(', ')', '{', '}', '[', ']', '<', '>', '\\', '\'', '"', '!', '#',
-        '*', '?',
-    ];
-    if resolved.to_string_lossy().contains(DANGEROUS) {
-        return Err(ValidationError(format!(
-            "Directory path contains invalid characters: {input}"
-        )));
-    }
-    Ok(resolved)
 }
 
 #[cfg(test)]

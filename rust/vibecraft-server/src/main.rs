@@ -1,15 +1,14 @@
-//! vibecraft server: replaces server/index.ts.
+//! vibecraft server: receives Claude Code events from the hook (HTTP and the
+//! events file) and streams them to the 3D monitor over WebSocket.
 //!
 //! One thread per connection (vibecraft has a handful of local clients), a
 //! shared state behind a mutex, one writer thread per WebSocket client fed
 //! by a channel, and inotify on the events file instead of polling.
 
-mod git;
 mod http;
 mod inotify;
-mod projects;
 mod routes;
-mod sessions;
+mod setup;
 mod sha1;
 mod state;
 mod ws;
@@ -32,14 +31,29 @@ use crate::state::{CLIENT_QUEUE_FRAMES, Client, Config, Frame, Shared, State, lo
 const MAX_BODY_SIZE: usize = 1024 * 1024;
 /// Compact the events file at startup once it grows past this
 const EVENTS_FILE_COMPACT_BYTES: usize = 10 * 1024 * 1024;
-/// Idle keep-alive connections are closed after this (Node's default)
+/// Idle keep-alive connections are closed after this
 const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(5);
-/// External sessions get history while they have events newer than this
-const EXTERNAL_SESSION_MAX_AGE_MS: u64 = 30 * 60 * 1000;
+/// New clients get the history of sessions with events newer than this
+const SESSION_HISTORY_MAX_AGE_MS: u64 = 30 * 60 * 1000;
 
 fn main() {
+    match std::env::args().nth(1).as_deref() {
+        None => {}
+        Some("setup") => return exit_on_error(setup::setup()),
+        Some("uninstall") => return exit_on_error(setup::uninstall()),
+        Some(_) => {
+            println!("Usage: vibecraft-server [setup | uninstall]");
+            println!("  (no argument)  run the server (VIBECRAFT_PORT, default 4003)");
+            println!(
+                "  setup          install the hook and register it in ~/.claude/settings.json"
+            );
+            println!("  uninstall      remove the hook (keeps ~/.vibecraft/data)");
+            return;
+        }
+    }
+
     let config = Arc::new(Config::from_env());
-    let mut state = State::new(config.clone());
+    let mut state = State::new(&config);
     load_events(&config, &mut state);
     let shared: Shared = Arc::new(Mutex::new(state));
 
@@ -59,12 +73,17 @@ fn main() {
         "[vibecraft] Server running on {}:{}",
         config.host, config.port
     );
-    // Like the Node server: tmux polling and health checks start once listening
-    sessions::start(&shared);
 
     for stream in listener.incoming().flatten() {
         let (shared, config) = (shared.clone(), config.clone());
         thread::spawn(move || handle_connection(stream, &shared, &config));
+    }
+}
+
+fn exit_on_error(result: Result<(), String>) {
+    if let Err(e) = result {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
     }
 }
 
@@ -231,18 +250,15 @@ fn websocket(
     });
 
     // Register and queue the greeting under one lock, so no broadcast can
-    // slip in before it: connected, sessions, text_tiles, then history
+    // slip in before it: connected, text_tiles, then history
     let client_id = {
         let mut state = lock(shared);
         let id = state.next_client_id;
         state.next_client_id += 1;
-        let cutoff = routes::now_ms().saturating_sub(EXTERNAL_SESSION_MAX_AGE_MS) as f64;
-        let history = state
-            .events
-            .initial_history(&state.managed_claude_ids(), cutoff, 50);
+        let cutoff = routes::now_ms().saturating_sub(SESSION_HISTORY_MAX_AGE_MS) as f64;
+        let history = state.events.initial_history(cutoff, 50);
         let greeting = [
             json!({ "type": "connected", "payload": { "sessionId": state.events.last_session_id() } }),
-            state.sessions_message(),
             state.tiles_message(),
             json!({ "type": "history", "payload": history }),
         ];
@@ -267,9 +283,8 @@ fn websocket(
             client.send(Arc::new(ws::pong_frame(&payload)));
         });
         match message {
-            Ok(ws::Message::Text(text)) => handle_client_message(&text, &client, shared),
-            // Clients only send JSON; binary messages are ignored
-            Ok(ws::Message::Binary(())) => {}
+            // The monitor only receives; anything clients send is ignored
+            Ok(ws::Message::Data) => {}
             Ok(ws::Message::Close) => {
                 client.send(Arc::new(ws::close_frame(1000, "")));
                 break;
@@ -281,67 +296,4 @@ fn websocket(
     lock(shared).clients.remove(&client_id);
     drop(client);
     let _ = writer_thread.join();
-}
-
-fn handle_client_message(text: &str, client: &Client, shared: &Shared) {
-    let Ok(message) = serde_json::from_str::<Value>(text) else {
-        return;
-    };
-    let send = |value: Value| {
-        client.send(Arc::new(ws::text_frame(&value.to_string())));
-    };
-    match message.get("type").and_then(Value::as_str) {
-        Some("get_history") => {
-            let state = lock(shared);
-            let len = state.events.len();
-            let start = js_slice_start(len, message.get("payload").and_then(|p| p.get("limit")));
-            let history: Vec<&Value> = state.events.events().skip(start).collect();
-            send(json!({ "type": "history", "payload": history }));
-        }
-        Some("permission_response") => {
-            let payload = message.get("payload");
-            let field = |k: &str| payload.and_then(|p| p.get(k)).and_then(Value::as_str);
-            if let (Some(id), Some(response)) = (field("sessionId"), field("response")) {
-                sessions::send_permission_response(shared, id, response);
-            }
-        }
-        // ping, subscribe
-        _ => {}
-    }
-}
-
-/// Where `events.slice(-limit)` starts, with `limit ?? 100` and JS coercion
-fn js_slice_start(len: usize, limit: Option<&Value>) -> usize {
-    let limit = match limit {
-        None | Some(Value::Null) => 100.0,
-        Some(Value::Number(n)) => n.as_f64().unwrap_or(f64::NAN),
-        Some(Value::String(s)) => s.trim().parse().unwrap_or(f64::NAN),
-        Some(Value::Bool(b)) => f64::from(u8::from(*b)),
-        Some(_) => f64::NAN,
-    };
-    // slice(start): ToIntegerOrInfinity, NaN → 0, negatives count from the end
-    let start = -limit.trunc();
-    let start = if start.is_nan() { 0.0 } else { start };
-    if start < 0.0 {
-        (len as f64 + start).max(0.0) as usize
-    } else {
-        (start as usize).min(len)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn slice_start_like_js() {
-        assert_eq!(js_slice_start(10, None), 0);
-        assert_eq!(js_slice_start(200, None), 100);
-        assert_eq!(js_slice_start(10, Some(&json!(3))), 7);
-        assert_eq!(js_slice_start(10, Some(&json!(0))), 0); // slice(-0) is everything
-        assert_eq!(js_slice_start(10, Some(&json!(-2))), 2); // slice(2)
-        assert_eq!(js_slice_start(10, Some(&json!("4"))), 6);
-        assert_eq!(js_slice_start(10, Some(&json!("x"))), 0);
-        assert_eq!(js_slice_start(10, Some(&json!(2.7))), 8);
-    }
 }

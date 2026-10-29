@@ -1,5 +1,4 @@
 //! In-memory event log: dedupe, tool durations, size limit and history.
-//! Port of `server/eventStore.ts`.
 //!
 //! Events stay as `serde_json::Value`, so fields the server doesn't know
 //! about pass through untouched.
@@ -95,33 +94,16 @@ impl EventStore {
         self.events.iter()
     }
 
-    /// The last `limit` events
-    pub fn recent(&self, limit: usize) -> Vec<&Value> {
-        let skip = self.events.len().saturating_sub(limit);
-        self.events.iter().skip(skip).collect()
-    }
-
-    /// History for a newly connected client: events from managed sessions,
-    /// plus events from any session at or after `cutoff_timestamp`
-    pub fn initial_history(
-        &self,
-        managed_claude_ids: &HashSet<String>,
-        cutoff_timestamp: f64,
-        limit: usize,
-    ) -> Vec<&Value> {
+    /// History for a newly connected client: the last `limit` events at or
+    /// after `cutoff_timestamp` (older ones belong to sessions long gone)
+    pub fn initial_history(&self, cutoff_timestamp: f64, limit: usize) -> Vec<&Value> {
         let matching: Vec<&Value> = self
             .events
             .iter()
             .filter(|e| {
-                let managed = e
-                    .get("sessionId")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| managed_claude_ids.contains(id));
-                let recent = e
-                    .get("timestamp")
+                e.get("timestamp")
                     .and_then(Value::as_f64)
-                    .is_some_and(|t| t >= cutoff_timestamp);
-                managed || recent
+                    .is_some_and(|t| t >= cutoff_timestamp)
             })
             .collect();
         let skip = matching.len().saturating_sub(limit);

@@ -85,11 +85,6 @@ describe('server: POST /event', () => {
     await sendJson(server, 'POST', '/event', makeEvent({ ...base, type: 'post_tool_use', timestamp: t0 + 250, success: true }))
     await client.next('event')
     assert.equal((await client.next('event')).payload.duration, 250)
-
-    const stats = (await getJson(server, '/stats')).body
-    assert.deepEqual(stats.toolCounts, { Read: 1 })
-    assert.deepEqual(stats.avgDurations, { Read: 250 })
-    assert.equal(stats.totalEvents, 2)
     client.close()
   })
 
@@ -194,15 +189,14 @@ describe('server: WebSocket', () => {
     }
   })
 
-  it('sends connected, sessions, text_tiles, then history on connect', async () => {
+  it('sends connected, text_tiles, then history on connect', async () => {
     seedEventsFile([makeEvent({ sessionId: 'last-session' })])
     server = await startServer(env)
     const client = await connectClient(server)
     await client.next('history')
-    assert.deepEqual(client.messages.map((m) => m.type), ['connected', 'sessions', 'text_tiles', 'history'])
+    assert.deepEqual(client.messages.map((m) => m.type), ['connected', 'text_tiles', 'history'])
     assert.deepEqual(client.messages[0].payload, { sessionId: 'last-session' })
     assert.deepEqual(client.messages[1].payload, [])
-    assert.deepEqual(client.messages[2].payload, [])
     client.close()
   })
 
@@ -213,7 +207,7 @@ describe('server: WebSocket', () => {
     client.close()
   })
 
-  it('initial history has only recent external events, at most 50', async () => {
+  it('initial history has only recent events, at most 50', async () => {
     const old = Date.now() - 31 * 60 * 1000
     seedEventsFile([
       makeEvent({ id: 'old', timestamp: old }),
@@ -227,23 +221,7 @@ describe('server: WebSocket', () => {
     client.close()
   })
 
-  it('get_history returns the last N events regardless of age', async () => {
-    seedEventsFile([
-      makeEvent({ id: 'old', timestamp: Date.now() - 24 * 60 * 60 * 1000 }),
-      makeEvent({ id: 'a' }),
-      makeEvent({ id: 'b' }),
-    ])
-    server = await startServer(env)
-    const client = await connectClient(server)
-    await client.next('history')
-    client.ws.send(JSON.stringify({ type: 'get_history', payload: { limit: 2 } }))
-    assert.deepEqual((await client.next('history')).payload.map((e: { id: string }) => e.id), ['a', 'b'])
-    client.ws.send(JSON.stringify({ type: 'get_history' }))
-    assert.deepEqual((await client.next('history')).payload.map((e: { id: string }) => e.id), ['old', 'a', 'b'])
-    client.close()
-  })
-
-  it('survives malformed and unknown client messages', async () => {
+  it('ignores whatever clients send, malformed or not', async () => {
     server = await startServer(env)
     const client = await connectClient(server)
     await client.next('history')

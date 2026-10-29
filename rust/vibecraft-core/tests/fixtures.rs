@@ -1,15 +1,11 @@
-//! Runs the shared JSON fixtures in tests/fixtures/ (also used by the
-//! TypeScript tests), so both implementations are pinned to the same cases.
+//! Runs the JSON fixtures in tests/fixtures/ (cases kept as data, readable
+//! without Rust).
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
 use vibecraft_core::event_store::{EventStore, LineSplitter};
-use vibecraft_core::tmux_parsing::{
-    detect_bypass_warning, detect_permission_prompt, parse_tokens_from_output,
-};
-use vibecraft_core::validation::{expand_home, is_origin_allowed, validate_tmux_session};
+use vibecraft_core::validation::{expand_home, is_origin_allowed};
 
 fn fixture(name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -31,61 +27,11 @@ fn name(case: &Value) -> String {
 }
 
 #[test]
-fn parse_tokens_from_output_fixtures() {
-    let f = fixture("tmux-parsing.json");
-    for case in cases(&f, "parseTokensFromOutput") {
-        let got = parse_tokens_from_output(case["input"].as_str().unwrap());
-        assert_eq!(json!(got), case["expected"], "{}", name(case));
-    }
-}
-
-#[test]
-fn detect_bypass_warning_fixtures() {
-    let f = fixture("tmux-parsing.json");
-    for case in cases(&f, "detectBypassWarning") {
-        let got = detect_bypass_warning(case["input"].as_str().unwrap());
-        assert_eq!(json!(got), case["expected"], "{}", name(case));
-    }
-}
-
-#[test]
-fn detect_permission_prompt_fixtures() {
-    let f = fixture("tmux-parsing.json");
-    for case in cases(&f, "detectPermissionPrompt") {
-        let got = detect_permission_prompt(case["input"].as_str().unwrap()).map(|p| {
-            json!({
-                "tool": p.tool,
-                "context": p.context,
-                "options": p.options.iter()
-                    .map(|o| json!({ "number": o.number, "label": o.label }))
-                    .collect::<Vec<_>>(),
-            })
-        });
-        assert_eq!(json!(got), case["expected"], "{}", name(case));
-    }
-}
-
-#[test]
 fn is_origin_allowed_fixtures() {
     let f = fixture("validation.json");
     for case in cases(&f, "isOriginAllowed") {
         let got = is_origin_allowed(case["input"].as_str());
         assert_eq!(json!(got), case["expected"], "{}", name(case));
-    }
-}
-
-#[test]
-fn validate_tmux_session_fixtures() {
-    let f = fixture("validation.json");
-    for case in cases(&f, "validateTmuxSession") {
-        let input = case["input"].as_str().unwrap();
-        let valid = case["valid"].as_bool().unwrap();
-        assert_eq!(
-            validate_tmux_session(input).is_ok(),
-            valid,
-            "{}",
-            name(case)
-        );
     }
 }
 
@@ -150,27 +96,11 @@ fn event_store_query_fixtures() {
         store.add(event.clone());
     }
     for case in q["initialHistory"].as_array().unwrap() {
-        let managed: HashSet<String> = case["managed"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap().to_string())
-            .collect();
         let got = store.initial_history(
-            &managed,
             case["cutoff"].as_f64().unwrap(),
             case["limit"].as_u64().unwrap() as usize,
         );
         assert_eq!(json!(ids(got)), case["expectedIds"], "{}", name(case));
-    }
-    for case in q["recent"].as_array().unwrap() {
-        let got = store.recent(case["limit"].as_u64().unwrap() as usize);
-        assert_eq!(
-            json!(ids(got)),
-            case["expectedIds"],
-            "recent {}",
-            case["limit"]
-        );
     }
     assert_eq!(json!(store.last_session_id()), q["lastSessionId"]);
     assert_eq!(EventStore::new(10).last_session_id(), "unknown");

@@ -1,15 +1,14 @@
-//! HTTP routes. Mirrors handleHttpRequest in server/index.ts: the same exact
-//! URL matching (query strings included), status codes and messages.
+//! HTTP routes: events from the hook, text tiles, config for the HUD, health,
+//! and the built frontend. URLs match exactly, query strings included.
 
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value, json};
-use vibecraft_core::validation::{is_origin_allowed, resolve, validate_tmux_session};
+use vibecraft_core::validation::{is_origin_allowed, resolve};
 
 use crate::http::{Body, Request, Response};
-use crate::sessions;
 use crate::state::{Config, Shared, lock, save_json};
 
 pub fn now_ms() -> u64 {
@@ -70,9 +69,7 @@ fn route(req: &Request, shared: &Shared, config: &Config) -> Response {
                 200,
                 &json!({
                     "ok": true,
-                    // The compiled Node server reports "unknown" too; a real version
-                    // would turn on the client's update check against upstream
-                    "version": "unknown",
+                    "version": env!("CARGO_PKG_VERSION"),
                     "clients": state.clients.len(),
                     "events": state.events.len(),
                 }),
@@ -86,53 +83,7 @@ fn route(req: &Request, shared: &Shared, config: &Config) -> Response {
                 .unwrap_or_else(|| "claude-user".to_string());
             Response::json(
                 200,
-                &json!({
-                    "username": username,
-                    "hostname": hostname(),
-                    "tmuxSession": config.tmux_session,
-                }),
-            )
-        }
-        ("GET", "/stats") => stats(shared),
-        ("POST", "/prompt") => post_prompt(req, config),
-        ("GET", "/prompt") => match fs::read_to_string(&config.prompt_file) {
-            Ok(prompt) => Response::json(
-                200,
-                &json!({ "prompt": prompt, "file": config.prompt_file }),
-            ),
-            Err(_) => Response::json(200, &json!({ "prompt": null })),
-        },
-        ("DELETE", "/prompt") => {
-            let _ = fs::remove_file(&config.prompt_file);
-            Response::json(200, &json!({ "ok": true }))
-        }
-        ("GET", "/info") => {
-            let cwd = std::env::current_dir().unwrap_or_default();
-            Response::json(200, &json!({ "ok": true, "cwd": cwd }))
-        }
-        ("GET", "/sessions") => {
-            let state = lock(shared);
-            Response::json(
-                200,
-                &json!({ "ok": true, "sessions": state.sessions_payload() }),
-            )
-        }
-        ("POST", "/sessions/refresh") => {
-            // The health check runs in the background; answer with what's known now
-            let s = shared.clone();
-            std::thread::spawn(move || sessions::check_health(&s));
-            let state = lock(shared);
-            Response::json(
-                200,
-                &json!({ "ok": true, "sessions": state.sessions_payload() }),
-            )
-        }
-        ("POST", "/sessions") => sessions::create(shared, &req.body),
-        ("GET", "/projects") => {
-            let state = lock(shared);
-            Response::json(
-                200,
-                &json!({ "ok": true, "projects": state.projects_sorted() }),
+                &json!({ "username": username, "hostname": hostname() }),
             )
         }
         ("GET", "/tiles") => {
@@ -140,27 +91,8 @@ fn route(req: &Request, shared: &Shared, config: &Config) -> Response {
             Response::json(200, &json!({ "ok": true, "tiles": state.tiles }))
         }
         ("POST", "/tiles") => post_tile(req, shared, config),
-        _ if method == "GET" && url.starts_with("/projects/autocomplete") => {
-            let query = query_param(url, "q").unwrap_or_default();
-            let results = lock(shared).autocomplete(&query);
-            Response::json(200, &json!({ "ok": true, "results": results }))
-        }
-        _ if method == "DELETE" && url.starts_with("/projects/") => {
-            match decode_uri_component(&url["/projects/".len()..]) {
-                Some(path) => {
-                    lock(shared).remove_project(&path);
-                    Response::json(200, &json!({ "ok": true }))
-                }
-                None => Response::json(400, &json!({ "ok": false, "error": "Invalid path" })),
-            }
-        }
         _ => {
-            if let Some((id, action)) = sessions::parse_path(url)
-                && let Some(res) = sessions::route(shared, method, id, action, &req.body)
-            {
-                return res;
-            }
-            // JS: /^\/tiles\/([^/?]+)/
+            // /tiles/:id (the id ends at the next '/' or '?')
             if let Some(id) = url
                 .strip_prefix("/tiles/")
                 .map(|rest| rest.split(['/', '?']).next().unwrap_or(""))
@@ -184,89 +116,7 @@ fn post_event(req: &Request, shared: &Shared) -> Response {
     Response::json(200, &json!({ "ok": true }))
 }
 
-fn stats(shared: &Shared) -> Response {
-    let state = lock(shared);
-    let mut counts: Map<String, Value> = Map::new();
-    let mut durations: Vec<(String, f64, u64)> = Vec::new();
-    for event in state.events.events() {
-        if event.get("type").and_then(Value::as_str) != Some("post_tool_use") {
-            continue;
-        }
-        let tool = match event.get("tool") {
-            Some(Value::String(s)) => s.clone(),
-            Some(other) => other.to_string(),
-            None => "undefined".to_string(),
-        };
-        let count = counts.get(&tool).and_then(Value::as_u64).unwrap_or(0);
-        counts.insert(tool.clone(), json!(count + 1));
-        if let Some(d) = event.get("duration").and_then(Value::as_f64) {
-            match durations.iter_mut().find(|(t, _, _)| *t == tool) {
-                Some((_, sum, n)) => {
-                    *sum += d;
-                    *n += 1;
-                }
-                None => durations.push((tool, d, 1)),
-            }
-        }
-    }
-    let mut avg: Map<String, Value> = Map::new();
-    for (tool, sum, n) in durations {
-        // Math.round
-        avg.insert(tool, json!((sum / n as f64 + 0.5).floor() as i64));
-    }
-    Response::json(
-        200,
-        &json!({
-            "totalEvents": state.events.len(),
-            "toolCounts": counts,
-            "avgDurations": avg,
-            "tokens": state.tokens.iter()
-                .map(|(name, t)| (name.clone(), json!({ "current": t.last_seen, "cumulative": t.cumulative })))
-                .collect::<Map<String, Value>>(),
-        }),
-    )
-}
-
-fn post_prompt(req: &Request, config: &Config) -> Response {
-    let data = match json_body(req) {
-        Err(res) => return res,
-        Ok(Some(data @ Value::Object(_))) => data,
-        // Destructuring null/undefined throws in JS, reported as invalid JSON
-        Ok(Some(Value::Null)) | Ok(None) => return error(400, "Invalid JSON"),
-        Ok(Some(_)) => Value::Object(Map::new()),
-    };
-    let Some(prompt) = data
-        .get("prompt")
-        .and_then(Value::as_str)
-        .filter(|p| !p.is_empty())
-    else {
-        return error(400, "Prompt is required");
-    };
-
-    if let Some(dir) = config.prompt_file.parent() {
-        let _ = fs::create_dir_all(dir);
-    }
-    if fs::write(&config.prompt_file, prompt).is_err() {
-        return error(400, "Invalid JSON");
-    }
-
-    let send = data.get("send").is_some_and(is_truthy);
-    if !send {
-        return Response::json(200, &json!({ "ok": true, "saved": config.prompt_file }));
-    }
-    match send_to_tmux(&config.tmux_session, prompt) {
-        Ok(()) => Response::json(
-            200,
-            &json!({ "ok": true, "saved": config.prompt_file, "sent": true }),
-        ),
-        Err(message) => Response::json(
-            200,
-            &json!({ "ok": true, "saved": config.prompt_file, "sent": false, "tmuxError": message }),
-        ),
-    }
-}
-
-pub fn is_truthy(v: &Value) -> bool {
+fn is_truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,
@@ -276,34 +126,7 @@ pub fn is_truthy(v: &Value) -> bool {
     }
 }
 
-/// PATH with the usual user/Homebrew locations, like EXEC_OPTIONS in Node
-pub fn exec_path() -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let path = std::env::var("PATH").unwrap_or_default();
-    format!("{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:{path}")
-}
-
-/// Paste text into a tmux session via a buffer (never through a shell)
-pub fn send_to_tmux(session: &str, text: &str) -> Result<(), String> {
-    validate_tmux_session(session).map_err(|e| e.to_string())?;
-    let temp = std::env::temp_dir().join(format!(
-        "vibecraft-prompt-{}-{}.txt",
-        now_ms(),
-        random_hex(16)
-    ));
-    fs::write(&temp, text).map_err(|e| e.to_string())?;
-    let temp_str = temp.to_string_lossy().to_string();
-    let result = (|| {
-        sessions::tmux(&["load-buffer", &temp_str])?;
-        sessions::tmux(&["paste-buffer", "-t", session])?;
-        std::thread::sleep(Duration::from_millis(100));
-        sessions::tmux(&["send-keys", "-t", session, "Enter"]).map(|_| ())
-    })();
-    let _ = fs::remove_file(&temp);
-    result
-}
-
-pub fn random_bytes<const N: usize>() -> [u8; N] {
+fn random_bytes<const N: usize>() -> [u8; N] {
     let mut buf = [0u8; N];
     if let Ok(mut f) = fs::File::open("/dev/urandom") {
         let _ = std::io::Read::read_exact(&mut f, &mut buf);
@@ -311,15 +134,8 @@ pub fn random_bytes<const N: usize>() -> [u8; N] {
     buf
 }
 
-fn random_hex(len: usize) -> String {
-    random_bytes::<32>()[..len]
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 /// RFC 4122 version 4 UUID, like crypto.randomUUID()
-pub fn uuid_v4() -> String {
+fn uuid_v4() -> String {
     let mut b = random_bytes::<16>();
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
@@ -413,44 +229,6 @@ fn tile_by_id(req: &Request, id: &str, shared: &Shared, config: &Config) -> Resp
     }
 }
 
-/// URLSearchParams.get: the first value for `name` in the query string
-/// ('+' is a space; malformed escapes stay as they are)
-fn query_param(url: &str, name: &str) -> Option<String> {
-    let decode = |s: &str| {
-        let bytes = s.as_bytes();
-        let mut out = Vec::with_capacity(bytes.len());
-        let mut i = 0;
-        while i < bytes.len() {
-            let escaped = (bytes[i] == b'%')
-                .then(|| {
-                    s.get(i + 1..i + 3)
-                        .and_then(|h| u8::from_str_radix(h, 16).ok())
-                })
-                .flatten();
-            match (bytes[i], escaped) {
-                (_, Some(byte)) => {
-                    out.push(byte);
-                    i += 3;
-                }
-                (b'+', None) => {
-                    out.push(b' ');
-                    i += 1;
-                }
-                (b, None) => {
-                    out.push(b);
-                    i += 1;
-                }
-            }
-        }
-        String::from_utf8_lossy(&out).into_owned()
-    };
-    let query = url.split_once('?')?.1;
-    query.split('&').find_map(|pair| {
-        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        (decode(key) == name).then(|| decode(value))
-    })
-}
-
 /// decodeURIComponent: strict %XX decoding into valid UTF-8
 fn decode_uri_component(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
@@ -530,16 +308,6 @@ mod tests {
         assert_eq!(decode_uri_component("/%E0%A4%A"), None);
         assert_eq!(decode_uri_component("/%C3"), None);
         assert_eq!(decode_uri_component("/%zz"), None);
-    }
-
-    #[test]
-    fn query_params_like_url_search_params() {
-        assert_eq!(query_param("/p?q=~%2Fcode%2F", "q"), Some("~/code/".into()));
-        assert_eq!(query_param("/p?a=1&q=a+b", "q"), Some("a b".into()));
-        assert_eq!(query_param("/p?q=%zz%4", "q"), Some("%zz%4".into()));
-        assert_eq!(query_param("/p?q", "q"), Some("".into()));
-        assert_eq!(query_param("/p?x=1", "q"), None);
-        assert_eq!(query_param("/p", "q"), None);
     }
 
     #[test]

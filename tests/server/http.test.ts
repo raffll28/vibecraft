@@ -1,13 +1,12 @@
 /**
- * Server contract: HTTP endpoints that don't need tmux (info, config,
- * prompt, tiles, CORS, static files).
+ * Server contract: HTTP endpoints (health, config, tiles, CORS, static files).
  *
  * Run against another implementation with VIBECRAFT_SERVER_CMD=<command>.
  */
 
 import { strict as assert } from 'node:assert'
 import { request } from 'node:http'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test'
@@ -42,25 +41,7 @@ describe('server: read-only endpoints', () => {
   })
 
   it('/config', async () => {
-    assert.deepEqual((await getJson(server, '/config')).body, {
-      username: 'tester', hostname: hostname(), tmuxSession: 'vibecraft-test-none',
-    })
-  })
-
-  it('/info returns the server cwd', async () => {
-    assert.deepEqual((await getJson(server, '/info')).body, { ok: true, cwd: REPO_ROOT })
-  })
-
-  it('/stats on an empty server', async () => {
-    assert.deepEqual((await getJson(server, '/stats')).body, { totalEvents: 0, toolCounts: {}, avgDurations: {}, tokens: {} })
-  })
-
-  it('/sessions is empty', async () => {
-    assert.deepEqual((await getJson(server, '/sessions')).body, { ok: true, sessions: [] })
-  })
-
-  it('/projects is empty', async () => {
-    assert.deepEqual((await getJson(server, '/projects')).body, { ok: true, projects: [] })
+    assert.deepEqual((await getJson(server, '/config')).body, { username: 'tester', hostname: hostname() })
   })
 })
 
@@ -89,41 +70,6 @@ describe('server: CORS', () => {
     assert.equal(bad.status, 403)
     const none = await fetch(`${server.url}/event`, { method: 'OPTIONS' })
     assert.equal(none.status, 403)
-  })
-})
-
-describe('server: pending prompt', () => {
-  let env: TestEnv
-  let server: TestServer
-  beforeEach(async () => { env = createTestEnv(); server = await startServer(env) })
-  afterEach(async () => { await server.stop(); env.cleanup() })
-
-  it('save, read and clear without sending to tmux', async () => {
-    const file = join(env.dataDir, 'pending-prompt.txt')
-    assert.deepEqual((await getJson(server, '/prompt')).body, { prompt: null })
-
-    const saved = await sendJson(server, 'POST', '/prompt', { prompt: 'faça X' })
-    assert.deepEqual(saved, { status: 200, body: { ok: true, saved: file } })
-    assert.equal(readFileSync(file, 'utf-8'), 'faça X')
-    assert.deepEqual((await getJson(server, '/prompt')).body, { prompt: 'faça X', file })
-
-    assert.deepEqual(await sendJson(server, 'DELETE', '/prompt'), { status: 200, body: { ok: true } })
-    assert.equal(existsSync(file), false)
-    assert.deepEqual((await getJson(server, '/prompt')).body, { prompt: null })
-  })
-
-  it('send=true reports the tmux failure but still saves', async () => {
-    const res = await sendJson(server, 'POST', '/prompt', { prompt: 'p', send: true })
-    assert.equal(res.status, 200)
-    assert.equal(res.body.ok, true)
-    assert.equal(res.body.sent, false)
-    assert.equal(typeof res.body.tmuxError, 'string')
-  })
-
-  it('validates input', async () => {
-    assert.deepEqual(await sendJson(server, 'POST', '/prompt', {}), { status: 400, body: { error: 'Prompt is required' } })
-    assert.deepEqual(await sendJson(server, 'POST', '/prompt', { prompt: 3 }), { status: 400, body: { error: 'Prompt is required' } })
-    assert.deepEqual(await sendJson(server, 'POST', '/prompt', '{x'), { status: 400, body: { error: 'Invalid JSON' } })
   })
 })
 

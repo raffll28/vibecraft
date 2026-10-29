@@ -1,15 +1,13 @@
 /**
  * EventClient - WebSocket client for receiving Claude Code events
+ * (receive-only: the server pushes events, history and text tiles)
  */
 
-import type { ClaudeEvent, ServerMessage, ClientMessage, ManagedSession } from '../../shared/types'
+import type { ClaudeEvent, ServerMessage } from '../../shared/types'
 
 export type EventHandler = (event: ClaudeEvent) => void
 export type HistoryHandler = (events: ClaudeEvent[]) => void
 export type ConnectionHandler = (connected: boolean) => void
-export type TokensHandler = (data: { session: string; current: number; cumulative: number }) => void
-export type SessionsHandler = (sessions: ManagedSession[]) => void
-export type SessionUpdateHandler = (session: ManagedSession) => void
 export type RawMessageHandler = (data: { type: string; payload?: unknown }) => void
 
 export interface EventClientOptions {
@@ -25,9 +23,6 @@ export class EventClient {
   private eventHandlers: Set<EventHandler> = new Set()
   private historyHandlers: Set<HistoryHandler> = new Set()
   private connectionHandlers: Set<ConnectionHandler> = new Set()
-  private tokensHandlers: Set<TokensHandler> = new Set()
-  private sessionsHandlers: Set<SessionsHandler> = new Set()
-  private sessionUpdateHandlers: Set<SessionUpdateHandler> = new Set()
   private rawMessageHandlers: Set<RawMessageHandler> = new Set()
   private reconnectAttempts = 0
   private reconnectTimeout: number | null = null
@@ -68,9 +63,6 @@ export class EventClient {
         this._isConnected = true
         this.reconnectAttempts = 0
         this.notifyConnectionHandlers(true)
-
-        // Subscribe to events
-        this.send({ type: 'subscribe' })
       }
 
       this.ws.onclose = () => {
@@ -126,12 +118,6 @@ export class EventClient {
     }, this.options.reconnectInterval)
   }
 
-  private send(message: ClientMessage): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message))
-    }
-  }
-
   private handleMessage(message: ServerMessage): void {
     switch (message.type) {
       case 'event':
@@ -154,25 +140,6 @@ export class EventClient {
 
       case 'connected':
         this.log('Session:', message.payload.sessionId)
-        break
-
-      case 'error':
-        this.log('Server error:', message.payload.message)
-        break
-
-      case 'tokens':
-        this.log('Tokens:', message.payload)
-        this.notifyTokensHandlers(message.payload)
-        break
-
-      case 'sessions':
-        this.log(`Received ${message.payload.length} sessions`)
-        this.notifySessionsHandlers(message.payload)
-        break
-
-      case 'session_update':
-        this.log('Session update:', message.payload.name)
-        this.notifySessionUpdateHandlers(message.payload)
         break
 
       default:
@@ -207,22 +174,7 @@ export class EventClient {
     return () => this.connectionHandlers.delete(handler)
   }
 
-  onTokens(handler: TokensHandler): () => void {
-    this.tokensHandlers.add(handler)
-    return () => this.tokensHandlers.delete(handler)
-  }
-
-  onSessions(handler: SessionsHandler): () => void {
-    this.sessionsHandlers.add(handler)
-    return () => this.sessionsHandlers.delete(handler)
-  }
-
-  onSessionUpdate(handler: SessionUpdateHandler): () => void {
-    this.sessionUpdateHandlers.add(handler)
-    return () => this.sessionUpdateHandlers.delete(handler)
-  }
-
-  /** Handle raw messages that aren't standard event types (e.g., permission prompts) */
+  /** Handle raw messages that aren't standard event types (e.g., text tiles) */
   onRawMessage(handler: RawMessageHandler): () => void {
     this.rawMessageHandlers.add(handler)
     return () => this.rawMessageHandlers.delete(handler)
@@ -256,39 +208,5 @@ export class EventClient {
         console.error('Connection handler error:', e)
       }
     }
-  }
-
-  private notifyTokensHandlers(data: { session: string; current: number; cumulative: number }): void {
-    for (const handler of this.tokensHandlers) {
-      try {
-        handler(data)
-      } catch (e) {
-        console.error('Tokens handler error:', e)
-      }
-    }
-  }
-
-  private notifySessionsHandlers(sessions: ManagedSession[]): void {
-    for (const handler of this.sessionsHandlers) {
-      try {
-        handler(sessions)
-      } catch (e) {
-        console.error('Sessions handler error:', e)
-      }
-    }
-  }
-
-  private notifySessionUpdateHandlers(session: ManagedSession): void {
-    for (const handler of this.sessionUpdateHandlers) {
-      try {
-        handler(session)
-      } catch (e) {
-        console.error('Session update handler error:', e)
-      }
-    }
-  }
-
-  requestHistory(limit = 100): void {
-    this.send({ type: 'get_history', payload: { limit } })
   }
 }
