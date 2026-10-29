@@ -1,0 +1,10 @@
+[package]
+name = "vibecraft-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "vibecraft server (HTTP + WebSocket + events file), replacing server/index.ts"
+
+[dependencies]
+serde_json = "1"
+vibecraft-core = { path = "../vibecraft-core" }

@@ -44,6 +44,7 @@
     "test:rust": "cargo test --release --manifest-path rust/Cargo.toml",
     "test:diff": "cargo build --release --manifest-path rust/Cargo.toml --examples && node tests/differential/core.diff.ts",
     "test:server": "npm run build:server && node --test 'tests/server/*.test.ts'",
+    "test:server:native": "cargo build --release --manifest-path rust/Cargo.toml -p vibecraft-server && VIBECRAFT_SERVER_CMD=rust/target/release/vibecraft-server node --test 'tests/server/*.test.ts'",
     "bench": "npm run build:server && node bench/hook.bench.ts && node bench/server.bench.ts",
     "bench:core": "cargo build --release --manifest-path rust/Cargo.toml --examples && node bench/core.bench.ts",
     "prepack": "npm run build",
