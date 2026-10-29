@@ -37,6 +37,8 @@ import type {
 import { DEFAULTS } from '../shared/defaults.js'
 import { GitStatusManager } from './GitStatusManager.js'
 import { ProjectsManager } from './ProjectsManager.js'
+import { expandHome, isOriginAllowed, validateDirectoryPath, validateTmuxSession } from './validation.js'
+import { parseTokensFromOutput, detectPermissionPrompt, detectBypassWarning } from './tmuxParsing.js'
 import { fileURLToPath } from 'url'
 
 // ============================================================================
@@ -70,14 +72,6 @@ const VERSION = getPackageVersion()
 // ============================================================================
 // Configuration (env vars override DEFAULTS from shared/defaults.ts)
 // ============================================================================
-
-/** Expand ~ to home directory in paths */
-function expandHome(path: string): string {
-  if (path.startsWith('~/') || path === '~') {
-    return path.replace('~', process.env.HOME || '')
-  }
-  return path
-}
 
 const PORT = parseInt(process.env.VIBECRAFT_PORT ?? String(DEFAULTS.SERVER_PORT), 10)
 const HOST = process.env.VIBECRAFT_HOST ?? DEFAULTS.SERVER_HOST
@@ -118,72 +112,6 @@ const DEEPGRAM_MODEL = 'nova-2'
 const DEEPGRAM_LANGUAGE = 'en'
 
 /**
- * Validate WebSocket origin header to prevent CSRF attacks.
- * Only browser clients should connect, so we require a valid origin.
- */
-function isOriginAllowed(origin: string | undefined): boolean {
-  // Require origin header - only browsers send this
-  if (!origin) return false
-
-  try {
-    const url = new URL(origin)
-
-    // Allow any port on localhost/127.0.0.1 (local development)
-    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
-      return true
-    }
-
-    // Production: exact hostname match with HTTPS required
-    if (url.hostname === 'vibecraft.sh' && url.protocol === 'https:') {
-      return true
-    }
-
-    return false
-  } catch {
-    return false // Invalid URL format
-  }
-}
-
-/**
- * Validate and sanitize a directory path for use in shell commands.
- * Returns the resolved path if valid, throws if invalid.
- */
-function validateDirectoryPath(inputPath: string): string {
-  // Resolve to absolute path (handles ~, .., etc.)
-  const resolved = resolve(expandHome(inputPath))
-
-  // Check path exists and is a directory
-  if (!existsSync(resolved)) {
-    throw new Error(`Directory does not exist: ${inputPath}`)
-  }
-
-  const stat = statSync(resolved)
-  if (!stat.isDirectory()) {
-    throw new Error(`Path is not a directory: ${inputPath}`)
-  }
-
-  // Reject paths with shell metacharacters that could enable injection
-  // Even with execFile, tmux passes commands to a shell
-  const dangerousChars = /[;&|`$(){}[\]<>\\'"!#*?]/
-  if (dangerousChars.test(resolved)) {
-    throw new Error(`Directory path contains invalid characters: ${inputPath}`)
-  }
-
-  return resolved
-}
-
-/**
- * Validate a tmux session name.
- * tmux session names should only contain alphanumeric, underscore, hyphen.
- */
-function validateTmuxSession(name: string): string {
-  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
-    throw new Error(`Invalid tmux session name: ${name}`)
-  }
-  return name
-}
-
-/**
  * Promisified execFile helper
  */
 function execFileAsync(cmd: string, args: string[]): Promise<void> {
@@ -203,11 +131,16 @@ function collectRequestBody(req: IncomingMessage, maxSize: number = MAX_BODY_SIZ
   return new Promise((resolve, reject) => {
     let body = ''
     let size = 0
+    let tooLarge = false
 
     req.on('data', (chunk: Buffer | string) => {
+      // Past the limit, drain and drop the rest instead of destroying the
+      // socket, which would also drop the 413 response
+      if (tooLarge) return
       size += chunk.length
       if (size > maxSize) {
-        req.destroy()
+        tooLarge = true
+        body = ''
         reject(new Error('Request body too large'))
         return
       }
@@ -352,40 +285,6 @@ function debug(...args: unknown[]) {
 // ============================================================================
 
 /**
- * Parse token count from Claude Code output
- * Patterns:
- *   ↓ 879 tokens
- *   ↓ 1,234 tokens
- *   ↓ 12.5k tokens
- *   ↓ 12k tokens
- */
-function parseTokensFromOutput(output: string): number | null {
-  // Match patterns like: ↓ 879 tokens, ↓ 1,234 tokens, ↓ 12.5k tokens
-  const patterns = [
-    /↓\s*([0-9,]+)\s*tokens?/gi,           // ↓ 879 tokens, ↓ 1,234 tokens
-    /↓\s*([0-9.]+)k\s*tokens?/gi,          // ↓ 12.5k tokens, ↓ 12k tokens
-  ]
-
-  let maxTokens = 0
-
-  // Pattern 1: plain numbers (possibly with commas)
-  const plainMatches = output.matchAll(patterns[0])
-  for (const match of plainMatches) {
-    const num = parseInt(match[1].replace(/,/g, ''), 10)
-    if (num > maxTokens) maxTokens = num
-  }
-
-  // Pattern 2: k suffix (thousands)
-  const kMatches = output.matchAll(patterns[1])
-  for (const match of kMatches) {
-    const num = Math.round(parseFloat(match[1]) * 1000)
-    if (num > maxTokens) maxTokens = num
-  }
-
-  return maxTokens > 0 ? maxTokens : null
-}
-
-/**
  * Parse captured tmux output for token counts
  */
 function handleTokenOutput(tmuxSession: string, stdout: string): void {
@@ -430,142 +329,6 @@ function handleTokenOutput(tmuxSession: string, stdout: string): void {
 // ============================================================================
 
 /**
- * Parse tmux output to detect Claude Code permission prompts.
- *
- * Claude Code prompts look like:
- *   ● Bash(rm /tmp/test.txt)
- *   ⎿  Running PreToolUse hook…
- *   ─────────────────────────────
- *   Bash command
- *
- *      rm /tmp/test.txt
- *
- *   Do you want to proceed?
- *   ❯ 1. Yes
- *     2. Yes, and always allow access to tmp/ from this project
- *     3. No
- *
- *   Esc to cancel · Tab to add additional instructions
- *
- * OR (plan mode):
- *   · Bash(prompt: run TypeScript compiler)
- *   Would you like to proceed?
- *
- *     1. Yes, and bypass permissions
- *   ❯ 2. Yes, and manually approve edits
- *     3. Type here to tell Claude what to change
- *
- *   ctrl-g to edit in Vim · ~/.claude/plans/...
- */
-function detectPermissionPrompt(output: string): { tool: string; context: string; options: PermissionOption[] } | null {
-  const lines = output.split('\n')
-
-  // Look for "Do you want to proceed?" OR "Would you like to proceed?" in recent output
-  let proceedLineIdx = -1
-  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 30); i--) {
-    if (/(Do you want|Would you like) to proceed\?/i.test(lines[i])) {
-      proceedLineIdx = i
-      break
-    }
-  }
-
-  if (proceedLineIdx === -1) return null
-
-  // CRITICAL: Verify this is a real Claude Code prompt by checking for the footer
-  // "Esc to cancel · Tab to add additional instructions" OR "ctrl-g to edit in Vim"
-  let hasFooter = false
-  let hasSelector = false
-  for (let i = proceedLineIdx + 1; i < Math.min(lines.length, proceedLineIdx + 15); i++) {
-    if (/Esc to cancel|ctrl-g to edit/i.test(lines[i])) {
-      hasFooter = true
-      break
-    }
-    // Also check for the ❯ selector arrow which indicates the interactive menu
-    if (/^\s*❯/.test(lines[i])) {
-      hasSelector = true
-    }
-  }
-
-  // Must have either the footer or the selector arrow to be a real prompt
-  if (!hasFooter && !hasSelector) {
-    debug('Skipping false positive: no "Esc to cancel"/"ctrl-g" footer or ❯ selector found')
-    return null
-  }
-
-  // Parse numbered options below the "Do you want to proceed?" line
-  const options: PermissionOption[] = []
-  for (let i = proceedLineIdx + 1; i < Math.min(lines.length, proceedLineIdx + 10); i++) {
-    const line = lines[i]
-
-    // Stop if we hit the footer
-    if (/Esc to cancel/i.test(line)) break
-
-    // Match options like "❯ 1. Yes" or "  2. Yes, and always..."
-    // The arrow (❯) indicates current selection, but we want all options
-    const optionMatch = line.match(/^\s*[❯>]?\s*(\d+)\.\s+(.+)$/)
-    if (optionMatch) {
-      options.push({
-        number: optionMatch[1],
-        label: optionMatch[2].trim()
-      })
-    }
-  }
-
-  // Need at least 2 options to be valid
-  if (options.length < 2) return null
-
-  // Find the tool name - look backwards for "● ToolName(...)" or "Bash command" header
-  let tool = 'Unknown'
-  for (let i = proceedLineIdx; i >= Math.max(0, proceedLineIdx - 20); i--) {
-    // Match tool header like "● Bash(rm /tmp/test.txt)" or "· Bash(prompt: ...)"
-    // ● = bullet, ◐ = half-filled circle, · = middle dot (plan mode)
-    const toolMatch = lines[i].match(/[●◐·]\s*(\w+)\s*\(/)
-    if (toolMatch) {
-      tool = toolMatch[1]
-      break
-    }
-    // Also match standalone tool type like "Bash command" or "Read file"
-    const cmdMatch = lines[i].match(/^\s*(Bash|Read|Write|Edit|Grep|Glob|Task|WebFetch|WebSearch)\s+\w+/i)
-    if (cmdMatch) {
-      tool = cmdMatch[1]
-      break
-    }
-  }
-
-  // Build context from the prompt area (between tool header and options)
-  const contextStart = Math.max(0, proceedLineIdx - 10)
-  const contextEnd = proceedLineIdx + 1 + options.length
-  const context = lines.slice(contextStart, contextEnd).join('\n').trim()
-
-  debug(`Detected permission prompt: tool=${tool}, options=${options.map(o => o.number + ':' + o.label).join(', ')}`)
-
-  return { tool, context, options }
-}
-
-/**
- * Detect the bypass permissions warning that appears on first use of --dangerously-skip-permissions.
- * Returns true if the warning is detected and needs to be accepted.
- *
- * The warning looks like:
- *   ╭──────────────────────────────────────────────────────────────────────────────╮
- *   │                                  WARNING                                     │
- *   │                                                                              │
- *   │  You are entering Bypass Permissions mode. In this mode:                     │
- *   │   • All tool calls will be auto-approved                                     │
- *   │   ...                                                                        │
- *   │                                                                              │
- *   │  Are you sure you want to continue?                                          │
- *   │                                                                              │
- *   │      1. No, exit Claude Code                                                 │
- *   │    ❯ 2. Yes, I understand and accept the risks                               │
- *   ╰──────────────────────────────────────────────────────────────────────────────╯
- */
-function detectBypassWarning(output: string): boolean {
-  // Must have both WARNING and Bypass Permissions mode
-  return output.includes('WARNING') && output.includes('Bypass Permissions mode')
-}
-
-/**
  * Check captured tmux output for permission prompts
  */
 function handlePermissionOutput(sessionId: string, tmuxSession: string, stdout: string): void {
@@ -589,6 +352,7 @@ function handlePermissionOutput(sessionId: string, tmuxSession: string, stdout: 
 
   if (prompt && !existing) {
     // New permission prompt detected
+    debug(`Detected permission prompt: tool=${prompt.tool}, options=${prompt.options.map(o => o.number + ':' + o.label).join(', ')}`)
     pendingPermissions.set(sessionId, {
       tool: prompt.tool,
       context: prompt.context,
