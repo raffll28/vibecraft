@@ -9,8 +9,10 @@
 #
 # Installed to: ~/.vibecraft/hooks/vibecraft-hook.sh
 # Run `npx vibecraft setup` to install/update this hook.
-
-set -e
+#
+# Hooks run synchronously on every tool call, so this script keeps process
+# spawns to a minimum: one jq call builds the whole event (plus one tail when
+# the transcript is needed, and a backgrounded curl).
 
 # =============================================================================
 # Cross-Platform PATH Setup
@@ -79,306 +81,173 @@ EVENTS_FILE="${VIBECRAFT_EVENTS_FILE:-$VIBECRAFT_DATA_DIR/events.jsonl}"
 WS_NOTIFY_URL="${VIBECRAFT_WS_NOTIFY:-http://localhost:4003/event}"
 ENABLE_WS_NOTIFY="${VIBECRAFT_ENABLE_WS_NOTIFY:-true}"
 
+# Longer strings inside toolResponse are truncated. The feed only previews the
+# first few hundred characters, and full Read/Bash outputs bloat events.jsonl.
+MAX_RESPONSE_CHARS="${VIBECRAFT_MAX_RESPONSE_CHARS:-4096}"
+
 # Ensure data directory exists
-mkdir -p "$(dirname "$EVENTS_FILE")"
+events_dir="${EVENTS_FILE%/*}"
+[ -d "$events_dir" ] || mkdir -p "$events_dir"
 
 # =============================================================================
-# Read and Parse Input
+# Read Input
 # =============================================================================
 
-input=$(cat)
+input=$(</dev/stdin)
 
-hook_event_name=$(echo "$input" | "$JQ" -r '.hook_event_name // "unknown"')
-session_id=$(echo "$input" | "$JQ" -r '.session_id // "unknown"')
-cwd=$(echo "$input" | "$JQ" -r '.cwd // ""')
-
-# Generate unique event ID and timestamp
-# macOS doesn't support date +%N, so we use different approaches
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  # macOS: use perl or python for milliseconds, fall back to seconds + random
-  if command -v perl &> /dev/null; then
-    timestamp=$(perl -MTime::HiRes=time -e 'printf "%.0f", time * 1000')
-  elif command -v python3 &> /dev/null; then
-    timestamp=$(python3 -c 'import time; print(int(time.time() * 1000))')
-  else
-    timestamp=$(($(date +%s) * 1000 + RANDOM % 1000))
-  fi
-  event_id="${session_id}-${timestamp}-${RANDOM}"
+# Generate timestamp (ms) and a unique ID suffix
+if [ -n "$EPOCHREALTIME" ]; then
+  # bash 5+: no process spawn. Strip the radix char, which is locale-dependent.
+  now_us=${EPOCHREALTIME//[!0-9]/}
+  timestamp=$((now_us / 1000))
+  printf -v id_suffix '%s%03d' "$now_us" $((RANDOM % 1000))
+elif command -v perl &> /dev/null; then
+  # bash 3.2 (macOS default)
+  timestamp=$(perl -MTime::HiRes=time -e 'printf "%.0f", time * 1000')
+  id_suffix="${timestamp}-${RANDOM}"
+elif command -v python3 &> /dev/null; then
+  timestamp=$(python3 -c 'import time; print(int(time.time() * 1000))')
+  id_suffix="${timestamp}-${RANDOM}"
 else
-  # Linux: use date +%N for nanoseconds
-  ms_part=$(date +%N | cut -c1-3)
-  timestamp=$(($(date +%s) * 1000 + 10#$ms_part))
-  event_id="${session_id}-$(date +%s%N)"
+  timestamp=$(($(date +%s) * 1000 + RANDOM % 1000))
+  id_suffix="${timestamp}-${RANDOM}"
 fi
 
-# =============================================================================
-# Event Type Mapping
-# =============================================================================
+# Only PreToolUse and Stop/SubagentStop read the transcript. Peek at the hook
+# name and transcript path with bash regexes so we don't spend a jq call on it.
+# (Quotes inside tool_input strings are escaped, so these can't match there.)
+transcript_lines=0
+name_re='"hook_event_name"[[:space:]]*:[[:space:]]*"([A-Za-z]+)"'
+if [[ $input =~ $name_re ]]; then
+  case "${BASH_REMATCH[1]}" in
+    PreToolUse)        transcript_lines=30 ;;
+    Stop|SubagentStop) transcript_lines=200 ;;
+  esac
+fi
 
-case "$hook_event_name" in
-  PreToolUse)       event_type="pre_tool_use" ;;
-  PostToolUse)      event_type="post_tool_use" ;;
-  Stop)             event_type="stop" ;;
-  SubagentStop)     event_type="subagent_stop" ;;
-  SessionStart)     event_type="session_start" ;;
-  SessionEnd)       event_type="session_end" ;;
-  UserPromptSubmit) event_type="user_prompt_submit" ;;
-  Notification)     event_type="notification" ;;
-  PreCompact)       event_type="pre_compact" ;;
-  *)                event_type="unknown" ;;
-esac
+transcript_path=""
+path_re='"transcript_path"[[:space:]]*:[[:space:]]*"([^"]+)"'
+if [ "$transcript_lines" -gt 0 ] && [[ $input =~ $path_re ]]; then
+  transcript_path="${BASH_REMATCH[1]}"
+fi
 
 # =============================================================================
 # Build Event JSON
 # =============================================================================
 
-case "$event_type" in
-  pre_tool_use)
-    tool_name=$(echo "$input" | "$JQ" -r '.tool_name // "unknown"')
-    tool_input=$(echo "$input" | "$JQ" -c '.tool_input // {}')
-    tool_use_id=$(echo "$input" | "$JQ" -r '.tool_use_id // ""')
-    transcript_path=$(echo "$input" | "$JQ" -r '.transcript_path // ""')
+# The transcript tail is passed as raw text and parsed line by line inside jq,
+# so a partially written last line can't break the whole event.
+read_transcript() {
+  [ -n "$transcript_path" ] && [ -f "$transcript_path" ] &&
+    tail -n "$transcript_lines" "$transcript_path"
+  return 0
+}
 
-    # Try to extract assistant text that came just before this tool call
-    assistant_text=""
-    if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
-      assistant_text=$(tail -30 "$transcript_path" | \
-        "$JQ" -rs '
-          (to_entries | map(select(.value.type == "user")) | last | .key) as $last_user |
-          to_entries | map(select(.key > ($last_user // -1))) |
-          map(.value) |
-          map(select(.type == "assistant")) |
-          map(.message.content | map(select(.type == "text")) | map(.text)) |
-          flatten | join("\n")
-        ' 2>/dev/null || echo "")
-    fi
+event=$("$JQ" -c \
+  --arg idSuffix "$id_suffix" \
+  --argjson timestamp "$timestamp" \
+  --argjson maxChars "$MAX_RESPONSE_CHARS" \
+  --rawfile transcript <(read_transcript) \
+  '
+  def str($default): (. // $default | tostring);
 
-    event=$("$JQ" -n -c \
-      --arg id "$event_id" \
-      --argjson timestamp "$timestamp" \
-      --arg type "$event_type" \
-      --arg sessionId "$session_id" \
-      --arg cwd "$cwd" \
-      --arg tool "$tool_name" \
-      --argjson toolInput "$tool_input" \
-      --arg toolUseId "$tool_use_id" \
-      --arg assistantText "$assistant_text" \
-      '{
-        id: $id,
-        timestamp: $timestamp,
-        type: $type,
-        sessionId: $sessionId,
-        cwd: $cwd,
-        tool: $tool,
-        toolInput: $toolInput,
-        toolUseId: $toolUseId,
-        assistantText: $assistantText
-      }')
-    ;;
+  def transcript_entries:
+    $transcript | split("\n") | map(select(length > 0) | (try fromjson catch empty));
 
-  post_tool_use)
-    tool_name=$(echo "$input" | "$JQ" -r '.tool_name // "unknown"')
-    tool_input=$(echo "$input" | "$JQ" -c '.tool_input // {}')
-    tool_response=$(echo "$input" | "$JQ" -c '.tool_response // {}')
-    tool_use_id=$(echo "$input" | "$JQ" -r '.tool_use_id // ""')
-    success=$(echo "$input" | "$JQ" -r '.tool_response.success // true')
+  # Assistant text that came after the last user message (before this tool call)
+  def assistant_text:
+    try (
+      transcript_entries
+      | (to_entries | map(select(.value.type == "user")) | last | .key) as $last_user
+      | to_entries | map(select(.key > ($last_user // -1))) | map(.value)
+      | map(select(.type == "assistant"))
+      | map(.message.content | map(select(.type == "text")) | map(.text))
+      | flatten | join("\n")
+    ) catch "";
 
-    event=$("$JQ" -n -c \
-      --arg id "$event_id" \
-      --argjson timestamp "$timestamp" \
-      --arg type "$event_type" \
-      --arg sessionId "$session_id" \
-      --arg cwd "$cwd" \
-      --arg tool "$tool_name" \
-      --argjson toolInput "$tool_input" \
-      --argjson toolResponse "$tool_response" \
-      --arg toolUseId "$tool_use_id" \
-      --argjson success "$success" \
-      '{
-        id: $id,
-        timestamp: $timestamp,
-        type: $type,
-        sessionId: $sessionId,
-        cwd: $cwd,
-        tool: $tool,
-        toolInput: $toolInput,
-        toolResponse: $toolResponse,
-        toolUseId: $toolUseId,
-        success: $success
-      }')
-    ;;
+  # Latest assistant message that has text
+  def last_response:
+    try (
+      [transcript_entries[]
+        | select(.type == "assistant")
+        | select(.message.content | map(select(.type == "text")) | length > 0)]
+      | last | .message.content | map(select(.type == "text")) | map(.text) | join("\n")
+    ) catch "";
 
-  stop|subagent_stop)
-    stop_hook_active=$(echo "$input" | "$JQ" -r '.stop_hook_active // false')
-    transcript_path=$(echo "$input" | "$JQ" -r '.transcript_path // ""')
+  def truncate_strings:
+    walk(if type == "string" and length > $maxChars
+         then .[:$maxChars] + "…[truncated]"
+         else . end);
 
-    # Try to extract latest assistant response from transcript
-    assistant_response=""
-    if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
-      assistant_response=$(tail -200 "$transcript_path" | \
-        "$JQ" -rs '[.[] | select(.type == "assistant") | select(.message.content | map(select(.type == "text")) | length > 0)] | last | .message.content | map(select(.type == "text")) | map(.text) | join("\n")' 2>/dev/null || echo "")
-    fi
-
-    event=$("$JQ" -n -c \
-      --arg id "$event_id" \
-      --argjson timestamp "$timestamp" \
-      --arg type "$event_type" \
-      --arg sessionId "$session_id" \
-      --arg cwd "$cwd" \
-      --argjson stopHookActive "$stop_hook_active" \
-      --arg response "$assistant_response" \
-      '{
-        id: $id,
-        timestamp: $timestamp,
-        type: $type,
-        sessionId: $sessionId,
-        cwd: $cwd,
-        stopHookActive: $stopHookActive,
-        response: $response
-      }')
-    ;;
-
-  session_start)
-    source_type=$(echo "$input" | "$JQ" -r '.source // "startup"')
-
-    event=$("$JQ" -n -c \
-      --arg id "$event_id" \
-      --argjson timestamp "$timestamp" \
-      --arg type "$event_type" \
-      --arg sessionId "$session_id" \
-      --arg cwd "$cwd" \
-      --arg source "$source_type" \
-      '{
-        id: $id,
-        timestamp: $timestamp,
-        type: $type,
-        sessionId: $sessionId,
-        cwd: $cwd,
-        source: $source
-      }')
-    ;;
-
-  session_end)
-    reason=$(echo "$input" | "$JQ" -r '.reason // "other"')
-
-    event=$("$JQ" -n -c \
-      --arg id "$event_id" \
-      --argjson timestamp "$timestamp" \
-      --arg type "$event_type" \
-      --arg sessionId "$session_id" \
-      --arg cwd "$cwd" \
-      --arg reason "$reason" \
-      '{
-        id: $id,
-        timestamp: $timestamp,
-        type: $type,
-        sessionId: $sessionId,
-        cwd: $cwd,
-        reason: $reason
-      }')
-    ;;
-
-  user_prompt_submit)
-    prompt=$(echo "$input" | "$JQ" -r '.prompt // ""')
-
-    event=$("$JQ" -n -c \
-      --arg id "$event_id" \
-      --argjson timestamp "$timestamp" \
-      --arg type "$event_type" \
-      --arg sessionId "$session_id" \
-      --arg cwd "$cwd" \
-      --arg prompt "$prompt" \
-      '{
-        id: $id,
-        timestamp: $timestamp,
-        type: $type,
-        sessionId: $sessionId,
-        cwd: $cwd,
-        prompt: $prompt
-      }')
-    ;;
-
-  notification)
-    message=$(echo "$input" | "$JQ" -r '.message // ""')
-    notification_type=$(echo "$input" | "$JQ" -r '.notification_type // "unknown"')
-
-    event=$("$JQ" -n -c \
-      --arg id "$event_id" \
-      --argjson timestamp "$timestamp" \
-      --arg type "$event_type" \
-      --arg sessionId "$session_id" \
-      --arg cwd "$cwd" \
-      --arg message "$message" \
-      --arg notificationType "$notification_type" \
-      '{
-        id: $id,
-        timestamp: $timestamp,
-        type: $type,
-        sessionId: $sessionId,
-        cwd: $cwd,
-        message: $message,
-        notificationType: $notificationType
-      }')
-    ;;
-
-  pre_compact)
-    trigger=$(echo "$input" | "$JQ" -r '.trigger // "manual"')
-    custom_instructions=$(echo "$input" | "$JQ" -r '.custom_instructions // ""')
-
-    event=$("$JQ" -n -c \
-      --arg id "$event_id" \
-      --argjson timestamp "$timestamp" \
-      --arg type "$event_type" \
-      --arg sessionId "$session_id" \
-      --arg cwd "$cwd" \
-      --arg trigger "$trigger" \
-      --arg customInstructions "$custom_instructions" \
-      '{
-        id: $id,
-        timestamp: $timestamp,
-        type: $type,
-        sessionId: $sessionId,
-        cwd: $cwd,
-        trigger: $trigger,
-        customInstructions: $customInstructions
-      }')
-    ;;
-
-  *)
-    # Unknown event - store raw input
-    event=$("$JQ" -n -c \
-      --arg id "$event_id" \
-      --argjson timestamp "$timestamp" \
-      --arg type "unknown" \
-      --arg sessionId "$session_id" \
-      --arg cwd "$cwd" \
-      --argjson raw "$input" \
-      '{
-        id: $id,
-        timestamp: $timestamp,
-        type: $type,
-        sessionId: $sessionId,
-        cwd: $cwd,
-        raw: $raw
-      }')
-    ;;
-esac
+  . as $h
+  | ({
+      PreToolUse: "pre_tool_use",
+      PostToolUse: "post_tool_use",
+      Stop: "stop",
+      SubagentStop: "subagent_stop",
+      SessionStart: "session_start",
+      SessionEnd: "session_end",
+      UserPromptSubmit: "user_prompt_submit",
+      Notification: "notification",
+      PreCompact: "pre_compact"
+    }[$h.hook_event_name | tostring] // "unknown") as $type
+  | ($h.session_id | str("unknown")) as $sessionId
+  | {
+      id: ($sessionId + "-" + $idSuffix),
+      timestamp: $timestamp,
+      type: $type,
+      sessionId: $sessionId,
+      cwd: ($h.cwd | str(""))
+    }
+  + if $type == "pre_tool_use" then {
+      tool: ($h.tool_name | str("unknown")),
+      toolInput: ($h.tool_input // {}),
+      toolUseId: ($h.tool_use_id | str("")),
+      assistantText: assistant_text
+    }
+    elif $type == "post_tool_use" then {
+      tool: ($h.tool_name | str("unknown")),
+      toolInput: ($h.tool_input // {}),
+      toolResponse: ($h.tool_response // {} | truncate_strings),
+      toolUseId: ($h.tool_use_id | str("")),
+      success: ((try $h.tool_response.success catch null) != false)
+    }
+    elif $type == "stop" or $type == "subagent_stop" then {
+      stopHookActive: ($h.stop_hook_active // false),
+      response: last_response
+    }
+    elif $type == "session_start" then { source: ($h.source | str("startup")) }
+    elif $type == "session_end" then { reason: ($h.reason | str("other")) }
+    elif $type == "user_prompt_submit" then { prompt: ($h.prompt | str("")) }
+    elif $type == "notification" then {
+      message: ($h.message | str("")),
+      notificationType: ($h.notification_type | str("unknown"))
+    }
+    elif $type == "pre_compact" then {
+      trigger: ($h.trigger | str("manual")),
+      customInstructions: ($h.custom_instructions | str(""))
+    }
+    else { raw: $h }
+    end
+  ' <<<"$input") || exit 0  # Never disturb Claude over a malformed event
 
 # =============================================================================
 # Output Event
 # =============================================================================
 
 # Append event to JSONL file
-echo "$event" >> "$EVENTS_FILE"
+printf '%s\n' "$event" >> "$EVENTS_FILE"
 
-# Notify WebSocket server (fire and forget, don't block Claude)
+# Notify WebSocket server (fire and forget, don't block Claude).
+# The body goes through stdin: as a single argv entry it would fail past
+# Linux's 128 KiB per-argument limit.
 if [ "$ENABLE_WS_NOTIFY" = "true" ] && [ -n "$CURL" ]; then
   "$CURL" -s -X POST "$WS_NOTIFY_URL" \
     -H "Content-Type: application/json" \
-    -d "$event" \
+    --data-binary @- \
     --connect-timeout 1 \
     --max-time 2 \
-    >/dev/null 2>&1 &
+    >/dev/null 2>&1 <<<"$event" &
 fi
 
 exit 0
