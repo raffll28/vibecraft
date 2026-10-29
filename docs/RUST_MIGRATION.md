@@ -174,21 +174,74 @@ capturas sem prompt de 1.2 µs para 0.36 µs. Parei aqui: essas funções rodam
 a cada 1–5 s, então mesmo a versão TypeScript custa microssegundos por
 segundo de uso. O ganho real virá no servidor (Fase 3).
 
-## Fase 3: servidor em Rust, rota por rota
+## Fase 3: servidor em Rust
 
-Padrão *strangler*: o servidor Rust (tokio + axum) assume a porta e repassa ao
-Node, numa porta interna, tudo que ainda não foi migrado. Cada rota migrada
-passa nos testes de contrato antes de sair do Node.
+**Mudança de estratégia.** O plano original era um *strangler*: o Rust assume a
+porta e repassa ao Node as rotas não migradas. Não funciona bem aqui porque o
+estado é compartilhado: eventos, sessões e tiles chegam por HTTP e saem por
+broadcast no WebSocket. Um `POST /tiles` atendido pelo Node faria broadcast
+para os clientes do Node, mas os navegadores estariam conectados no Rust;
+dividir isso exigiria sincronizar estado entre dois processos.
 
-Ordem sugerida:
-1. `/event`, WebSocket (connect, history, broadcast) e leitura do
-   `events.jsonl` com inotify, sem polling.
-2. `/health`, `/config`, `/info`, `/stats`, `/prompt`, `/tiles`, arquivos estáticos.
-3. Sessões e tmux (`/sessions/*`, permissões, tokens, git status).
-4. Voz (Deepgram), por último.
+Em vez disso, o servidor Rust (`rust/vibecraft-server`) cresce
+funcionalidade por funcionalidade, e cada passo roda a bateria de contrato
+inteira (`npm run test:server:native`). O uso diário continua no Node até o
+Rust passar em tudo; só então a troca.
 
-Antes do passo 3: instalar o tmux e escrever os testes de contrato das sessões
-(hoje não cobertos, porque dependem do tmux).
+**Dependências:** só `serde_json` e o `vibecraft-core`. HTTP/1.1, WebSocket
+(handshake com SHA-1, frames, fragmentação, ping/pong) e inotify (FFI direta
+com a libc) foram escritos à mão. Uma thread por conexão (são poucos
+clientes locais), estado atrás de um mutex, e uma thread escritora por
+cliente WebSocket com fila limitada.
+
+### 3a. Núcleo do servidor (concluído)
+
+Eventos (`/event`, arquivo com inotify, dedupe, durações), WebSocket
+(origem, saudação, histórico, `get_history`, broadcast), `/health`,
+`/config`, `/info`, `/stats`, `/prompt` (incluindo envio ao tmux), `/tiles`,
+`/sessions` e `/projects` (leitura), CORS e arquivos estáticos.
+
+**Validação**
+- Os 45 testes de contrato do servidor passam no Node e no Rust.
+- Escrever o contrato para o Rust revelou dois bugs no Node, corrigidos com
+  testes: `GET` de um diretório (ex.: `/assets`) derrubava o servidor
+  inteiro, e `POST /event` aceitava JSON que não é objeto (`5`, `"x"`) e o
+  repassava aos navegadores.
+- Teste com navegador real (Chromium) contra o Rust, com uma cópia dos dados
+  reais: histórico, zonas, feed e evento ao vivo pelo arquivo funcionando.
+
+**Resultado** (`npm run bench`, 1000 eventos no disco)
+
+| Métrica | Node | Rust | Ganho |
+|---|---|---|---|
+| Startup até `/health` | 97.5 ms | 9.8 ms | 10× |
+| `POST /event`, 16 conexões keep-alive | 56 mil req/s | 134 mil req/s | 2.4× |
+| Linha no `events.jsonl` → navegador (p50 / máx) | 1000 / 1005 ms | 1.2 / 1.35 ms | ~830× |
+| Memória (startup / sob carga / fim) | 80 / 153 / 88 MiB | 7.3 / 9.1 / 11 MiB | 8–17× |
+| Para rodar | Node 24 + `node_modules` (141 MiB, incluindo as ferramentas de build do frontend) | binário de 683 KiB, só libc | |
+
+O throughput é medido com um gerador de carga em Rust
+(`examples/load.rs`): com o `fetch` do Node como cliente, os dois servidores
+empatavam em ~5 mil req/s, o limite era o cliente.
+
+**Diferenças intencionais**
+- Fila por cliente WebSocket limitada a 4096 mensagens: um cliente que não
+  acompanha é desconectado (o navegador reconecta e recebe o histórico). O
+  Node acumula sem limite: no benchmark, chegou a 153 MiB com clientes
+  parados.
+- Voz (Deepgram) ainda não existe no Rust: `voiceEnabled` é `false` e
+  `voice_start` responde "não configurado".
+- `/health` reporta `version: "unknown"`, como o Node compilado. Uma versão
+  real ligaria a checagem de atualização contra o repositório original.
+
+### 3b. Sessões e tmux (próximo)
+
+Sessões gerenciadas (`POST/PATCH/DELETE /sessions`, prompt, cancel,
+restart, link), polling de permissões e tokens, git status, autocomplete e
+remoção de projetos, `permission_response`. Antes de portar: escrever os
+testes de contrato dessas rotas, agora possível com o tmux instalado.
+
+### 3c. Voz (Deepgram), por último
 
 ## Fase 4: desligar o Node
 

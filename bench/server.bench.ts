@@ -4,16 +4,23 @@
  * Usage:
  *   node bench/server.bench.ts
  *   VIBECRAFT_SERVER_CMD=path/to/binary node bench/server.bench.ts
+ *
+ * Throughput uses the Rust load generator (cargo build --release --examples
+ * in rust/) when built: a Node fetch client saturates before either server.
  */
 
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
-import { createTestEnv } from '../tests/helpers/env.ts'
+import { execFileSync } from 'node:child_process'
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { createTestEnv, REPO_ROOT } from '../tests/helpers/env.ts'
 import { connectClient, makeEvent, SERVER_CMD, startServer, type TestClient } from '../tests/helpers/server.ts'
 import { printTable, rssMiB, summarize } from './stats.ts'
 
 const SEED_EVENTS = 1000
 const POSTS = 2000
 const CONCURRENCY = 16
+const LOAD_SECONDS = 3
+const LOAD_TOOL = join(REPO_ROOT, 'rust/target/release/examples/load')
 const CLIENTS = 5
 const FILE_APPENDS = 200
 
@@ -45,6 +52,14 @@ console.log('Startup to first healthy response (1000 events on disk):')
 printTable([{ name: 'startup', ...summarize(startupTimes) }], 'ms')
 
 const rssIdle = await rssMiB(server!.pid)
+
+// Server capacity, with a client that isn't the bottleneck. Measured before
+// WebSocket clients connect: execFileSync blocks this process, so they
+// couldn't read, and ingestion is what's measured here
+const loadThroughput = existsSync(LOAD_TOOL)
+  ? parseInt(execFileSync(LOAD_TOOL, [String(server!.port), String(CONCURRENCY), String(LOAD_SECONDS)], { encoding: 'utf-8' }), 10)
+  : null
+const rssAfterLoad = await rssMiB(server!.pid)
 
 // --- Clients that receive every broadcast ------------------------------------
 const clients: TestClient[] = []
@@ -78,6 +93,7 @@ await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
 }))
 const throughput = POSTS / ((performance.now() - t0) / 1000)
 
+
 // --- End-to-end: line appended to events.jsonl → WebSocket client ----------
 const fanout: number[] = []
 const watcher = clients[0]
@@ -100,10 +116,13 @@ const rssLoaded = await rssMiB(server!.pid)
 
 console.log(`\nPOST /event, sequential (${CLIENTS} WebSocket clients connected):`)
 printTable([{ name: 'POST /event', ...summarize(seq) }], 'ms')
-console.log(`\nPOST /event throughput, ${CONCURRENCY} concurrent: ${throughput.toFixed(0)} req/s`)
+console.log(`\nPOST /event throughput, ${CONCURRENCY} concurrent: ${throughput.toFixed(0)} req/s (Node fetch client)`)
+if (loadThroughput !== null) {
+  console.log(`POST /event throughput, ${CONCURRENCY} keep-alive connections, no WebSocket clients: ${loadThroughput} req/s (Rust load client)`)
+}
 console.log('\nevents.jsonl append → WebSocket client receives it:')
 printTable([{ name: 'file → client', ...summarize(fanout) }], 'ms')
-console.log(`\nMemory (RSS): ${rssIdle.toFixed(1)} MiB after startup, ${rssLoaded.toFixed(1)} MiB after load`)
+console.log(`\nMemory (RSS): ${rssIdle.toFixed(1)} MiB after startup, ${rssAfterLoad.toFixed(1)} MiB after the load client, ${rssLoaded.toFixed(1)} MiB at the end`)
 
 for (const c of clients) c.close()
 await server!.stop()

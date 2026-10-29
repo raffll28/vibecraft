@@ -79,7 +79,7 @@ export async function startServer(env: TestEnv, extraEnv: Record<string, string>
       child.kill('SIGKILL')
       throw new Error(`Server did not become healthy:\n${output}`)
     }
-    await sleep(50)
+    await sleep(5)
   }
 
   return {
