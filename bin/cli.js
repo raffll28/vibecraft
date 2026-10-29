@@ -136,6 +136,7 @@ Options:
 Environment Variables:
   VIBECRAFT_PORT       WebSocket server port (default: 4003)
   VIBECRAFT_DEBUG      Enable debug logging (true/false)
+  VIBECRAFT_SERVER     Set to "node" to skip the native (Rust) server
 
 Setup:
   1. Run: vibecraft setup
@@ -798,12 +799,25 @@ console.log(`Starting server on port ${port}...`)
 console.log(`Open http://localhost:${port} in your browser`)
 console.log()
 
-// Check for compiled JS (npm package) or fall back to tsx (dev)
+// Prefer the native Rust server when it has been built (cargo build --release
+// in rust/), then compiled JS (npm package), then tsx (dev).
+// VIBECRAFT_SERVER=node forces the Node server.
+const nativePath = resolve(ROOT, 'rust/target/release/vibecraft-server')
 const compiledPath = resolve(ROOT, 'dist/server/server/index.js')
 const sourcePath = resolve(ROOT, 'server/index.ts')
 
 let server
-if (existsSync(compiledPath)) {
+if (existsSync(nativePath) && process.env.VIBECRAFT_SERVER !== 'node') {
+  console.log('(native server - Rust)')
+  server = spawn(nativePath, [], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      VIBECRAFT_PORT: port,
+    },
+    stdio: 'inherit',
+  })
+} else if (existsSync(compiledPath)) {
   // Use compiled JS (production/npm install)
   server = spawn('node', [compiledPath], {
     cwd: ROOT,
