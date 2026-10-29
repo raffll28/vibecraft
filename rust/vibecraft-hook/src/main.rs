@@ -1,6 +1,6 @@
 //! Vibecraft hook - captures Claude Code events for the 3D visualization.
 //!
-//! Drop-in replacement for `hooks/vibecraft-hook.sh` (bash + jq + curl):
+//! Replaces the original bash + jq + curl hook, with the same events:
 //! 1. Reads the hook input (JSON) from stdin
 //! 2. Transforms it into a vibecraft event
 //! 3. Appends it to the events JSONL file

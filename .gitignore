@@ -31,10 +31,7 @@ npm-debug.log*
 # TypeScript cache
 *.tsbuildinfo
 *.png
-!public/og-image.png
-!public/multiclaude.png
-bin/vibecraft
-scripts/test-*.sh
+!public/monitor.png
 todo.txt
 
 # Rust build output

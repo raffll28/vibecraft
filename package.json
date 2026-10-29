@@ -1,69 +1,36 @@
 {
   "name": "vibecraft",
-  "version": "0.1.15",
-  "description": "3D visualization of Claude Code as an interactive workshop",
+  "version": "0.2.0",
+  "private": true,
+  "description": "3D status monitor for the Claude Code sessions running in your terminals",
   "author": "nearcyan",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nearcyan/vibecraft"
+    "url": "https://github.com/raffll28/vibecraft"
   },
-  "keywords": [
-    "claude",
-    "claude-code",
-    "visualization",
-    "3d",
-    "vibecoding",
-    "ai",
-    "developer-tools"
-  ],
   "type": "module",
-  "bin": {
-    "vibecraft": "./bin/cli.js"
-  },
-  "files": [
-    "bin/",
-    "hooks/",
-    "dist/",
-    "!dist/**/*.map",
-    "data/.gitkeep"
-  ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
-    "dev:client": "vite",
-    "dev:server": "tsx watch server/index.ts",
-    "build": "npm run build:client && npm run build:server",
+    "dev": "vite",
+    "build": "npm run build:client && npm run build:rust",
     "build:client": "tsc && vite build",
-    "build:server": "tsc -p tsconfig.server.json",
-    "preview": "vite preview",
-    "server": "tsx server/index.ts",
-    "test": "npm run build && node --test 'tests/**/*.test.ts'",
+    "build:rust": "cargo build --release --manifest-path rust/Cargo.toml",
+    "test": "npm run build && npm run test:rust && node --test 'tests/**/*.test.ts'",
     "test:unit": "node --test 'tests/unit/*.test.ts'",
-    "test:hook": "node --test 'tests/hook/*.test.ts'",
-    "test:hook:native": "cargo build --release --manifest-path rust/Cargo.toml && VIBECRAFT_HOOK_CMD=rust/target/release/vibecraft-hook node --test 'tests/hook/*.test.ts'",
+    "test:hook": "npm run build:rust && node --test 'tests/hook/*.test.ts'",
+    "test:server": "npm run build:rust && node --test 'tests/server/*.test.ts'",
     "test:rust": "cargo test --release --manifest-path rust/Cargo.toml",
-    "test:diff": "cargo build --release --manifest-path rust/Cargo.toml --examples && node tests/differential/core.diff.ts",
-    "test:server": "npm run build:server && node --test 'tests/server/*.test.ts'",
-    "test:server:native": "cargo build --release --manifest-path rust/Cargo.toml -p vibecraft-server && VIBECRAFT_SERVER_CMD=rust/target/release/vibecraft-server node --test 'tests/server/*.test.ts'",
-    "bench": "npm run build:server && node bench/hook.bench.ts && node bench/server.bench.ts",
-    "bench:core": "cargo build --release --manifest-path rust/Cargo.toml --examples && node bench/core.bench.ts",
-    "prepack": "npm run build",
-    "prepublishOnly": "npm run build",
-    "deploy": "./scripts/deploy.sh",
-    "release": "./scripts/release.sh"
+    "bench": "cargo build --release --examples --manifest-path rust/Cargo.toml && npm run build:rust && node bench/hook.bench.ts && node bench/server.bench.ts"
   },
   "dependencies": {
-    "chokidar": "^4.0.0",
-    "three": "^0.170.0",
-    "ws": "^8.18.0"
+    "three": "^0.170.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/three": "^0.170.0",
     "@types/ws": "^8.5.13",
-    "concurrently": "^9.0.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "ws": "^8.18.0"
   }
 }

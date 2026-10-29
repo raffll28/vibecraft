@@ -2,8 +2,7 @@
  * Run the hook the way Claude Code does: spawned from Node, input on stdin.
  *
  * Node gives the child a socket for stdin on Linux, so this also guards the
- * /dev/stdin regression. Override the implementation with VIBECRAFT_HOOK_CMD
- * (e.g. a Rust binary) to run the same suite against it.
+ * /dev/stdin regression. VIBECRAFT_HOOK_CMD overrides the hook binary.
  */
 
 import { spawn } from 'node:child_process'
@@ -11,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { REPO_ROOT, splitCommand, type TestEnv } from './env.ts'
 
-export const HOOK_CMD = process.env.VIBECRAFT_HOOK_CMD ?? join(REPO_ROOT, 'hooks/vibecraft-hook.sh')
+export const HOOK_CMD = process.env.VIBECRAFT_HOOK_CMD ?? join(REPO_ROOT, 'rust/target/release/vibecraft-hook')
 
 export interface HookResult {
   code: number | null

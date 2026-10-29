@@ -1,4 +1,4 @@
-//! Hook input → vibecraft event, matching the jq program in hooks/vibecraft-hook.sh.
+//! Hook input → vibecraft event, matching the jq program of the original bash hook.
 //!
 //! jq semantics worth keeping in mind:
 //! - `x // default` replaces both null and false
