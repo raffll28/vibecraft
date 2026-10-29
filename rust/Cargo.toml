@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["vibecraft-hook"]
+members = ["vibecraft-core", "vibecraft-hook"]
 
 [workspace.package]
 edition = "2024"
