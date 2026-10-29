@@ -234,7 +234,8 @@ export class GitStatusManager {
     }
 
     // Parse status --porcelain
-    const statusLines = statusResult.trim().split('\n').filter(Boolean)
+    // trimEnd, not trim: the leading space of " M file" is the staged column
+    const statusLines = statusResult.trimEnd().split('\n').filter(Boolean)
     for (const line of statusLines) {
       const staged = line[0]
       const unstaged = line[1]

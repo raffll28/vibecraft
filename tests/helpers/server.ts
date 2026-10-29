@@ -5,7 +5,8 @@
  * same contract tests against another implementation (e.g. a Rust binary).
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import WebSocket from 'ws'
@@ -40,14 +41,35 @@ async function freePort(): Promise<number> {
   })
 }
 
+/**
+ * Environment for anything that talks to tmux in a test: a tmux server of its
+ * own (socket under the test HOME), never the user's. TMUX is dropped because
+ * when set, tmux commands target that server regardless of TMUX_TMPDIR.
+ */
+export function tmuxEnv(env: TestEnv): NodeJS.ProcessEnv {
+  const tmuxDir = join(env.home, 'tmux')
+  mkdirSync(tmuxDir, { recursive: true })
+  const { TMUX: _tmux, TMUX_PANE: _pane, ...rest } = process.env
+  return { ...rest, HOME: env.home, TMUX_TMPDIR: tmuxDir }
+}
+
+/** Run tmux against the test's own tmux server */
+export function tmux(env: TestEnv, ...args: string[]): string {
+  return execFileSync('tmux', args, { env: tmuxEnv(env), encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+/** Stop the test's tmux server, if one was started */
+export function killTmux(env: TestEnv): void {
+  try { tmux(env, 'kill-server') } catch { /* no server running */ }
+}
+
 export async function startServer(env: TestEnv, extraEnv: Record<string, string> = {}): Promise<TestServer> {
   const port = await freePort()
   const [cmd, args] = splitCommand(SERVER_CMD)
   const child: ChildProcess = spawn(cmd, args, {
     cwd: REPO_ROOT,
     env: {
-      ...process.env,
-      HOME: env.home,
+      ...tmuxEnv(env),
       VIBECRAFT_PORT: String(port),
       VIBECRAFT_HOST: '127.0.0.1',
       VIBECRAFT_EVENTS_FILE: env.eventsFile,

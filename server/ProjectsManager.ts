@@ -96,9 +96,13 @@ export class ProjectsManager {
     const seen = new Set<string>()
 
     // Normalize the partial path
-    const normalizedPartial = partial.startsWith('~')
-      ? resolve(homedir(), partial.slice(1))  // ~/foo → /home/user/foo, ~ → /home/user
-      : partial
+    // Concatenate rather than resolve(): resolve(home, '/foo') would drop home,
+    // and a trailing / or /. (list hidden entries) must survive
+    const normalizedPartial = partial === '~' || partial.startsWith('~/')
+      ? homedir() + partial.slice(1)  // ~/foo → /home/user/foo, ~ → /home/user
+      : partial.startsWith('~')
+        ? resolve(homedir(), partial.slice(1))
+        : partial
 
     // Check if user is actively browsing (path ends with /)
     const isBrowsing = partial.endsWith('/') || partial === '~'
