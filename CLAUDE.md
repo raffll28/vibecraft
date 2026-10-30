@@ -56,8 +56,9 @@ framing) and inotify (direct libc FFI) are hand-written in
 **Server** (`vibecraft-server/src`):
 - `main.rs`: startup (loads events, compacts the file past 10 MB), the events
   file watcher, the connection loop and the WebSocket client lifecycle.
-- `routes.rs`: `POST /event`, `GET /health`, `GET /config` (username for the
-  HUD), CORS, static files from `dist/`.
+- `routes.rs`: `POST /event`, `GET /health`, static files from `dist/`. No
+  CORS: the only browser client is the page this server serves, and the
+  WebSocket only accepts localhost origins (`validation::is_origin_allowed`).
 - `state.rs`: config from env vars, shared state behind a mutex, broadcast.
   Each WebSocket client has a writer thread fed by a bounded queue
   (`CLIENT_QUEUE_FRAMES`); a client that falls behind is disconnected.
@@ -67,10 +68,14 @@ On connect a client gets `connected`, then `history` (events from the last
 30 minutes, at most 50). Afterwards: `event`.
 The server ignores anything clients send.
 
-**Hook** (`vibecraft-hook/src`): `event.rs` maps hook input to events
-following the semantics of the original jq program (see the module docs:
-`//` defaults, codepoint truncation); `transcript.rs` reads only the tail of
-the transcript; `notify.rs` is a bounded synchronous POST.
+**Hook** (`vibecraft-hook/src`): `event.rs` maps hook input to events that
+carry only what the frontend uses: session, cwd, tool, a summary of the tool
+input (short fields truncated to 300 characters, line counts instead of
+contents, todo count), success, and the notification type. Prompts,
+responses, tool output and file contents are never recorded; unknown hook
+events are skipped. `notify.rs` is a bounded synchronous POST. If the
+frontend needs another field, add it to `summarize_input()` /
+`ToolInputSummary` (`shared/types.ts`) together.
 
 ## Frontend
 
@@ -140,7 +145,6 @@ and the map.
 - `entities/animations/`: `IdleBehaviors.ts` (random idle animations) and
   `WorkingBehaviors.ts` (per-station loops). Each behavior has `update(parts,
   progress, delta)` and must `reset(parts)` everything it moved.
-  `Alt+D` opens a panel to test them.
 
 ### Scene
 
@@ -176,6 +180,5 @@ examples.
 
 ## Data
 
-`~/.vibecraft/data/events.jsonl` (hook), and in the browser's localStorage:
-grid size, port, streaming mode. See
+`~/.vibecraft/data/events.jsonl` (hook). The browser stores nothing. See
 [docs/STORAGE.md](docs/STORAGE.md).

@@ -1,12 +1,13 @@
-//! HTTP routes: events from the hook, config for the HUD, health,
-//! and the built frontend. URLs match exactly, query strings included.
+//! HTTP routes: events from the hook, health, and the built frontend. URLs
+//! match exactly, query strings included. No CORS: the only browser client
+//! is the page this server serves.
 
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
-use vibecraft_core::validation::{is_origin_allowed, resolve};
+use vibecraft_core::validation::resolve;
 
 use crate::http::{Body, Request, Response};
 use crate::state::{Config, Shared, lock};
@@ -16,22 +17,6 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
-}
-
-pub fn handle(req: &Request, shared: &Shared, config: &Config) -> Response {
-    let origin = req.header("origin");
-    let mut res = route(req, shared, config);
-    if let Some(origin) = origin.filter(|o| is_origin_allowed(Some(o))) {
-        res.headers
-            .push(("Access-Control-Allow-Origin", origin.to_string()));
-        res.headers.push((
-            "Access-Control-Allow-Methods",
-            "GET, POST, OPTIONS".to_string(),
-        ));
-        res.headers
-            .push(("Access-Control-Allow-Headers", "Content-Type".to_string()));
-    }
-    res
 }
 
 fn error(status: u16, message: &str) -> Response {
@@ -50,18 +35,8 @@ fn json_body(req: &Request) -> Result<Option<Value>, Response> {
     }
 }
 
-fn route(req: &Request, shared: &Shared, config: &Config) -> Response {
-    let method = req.method.as_str();
-    let url = req.url.as_str();
-
-    if method == "OPTIONS" {
-        let allowed = req
-            .header("origin")
-            .is_some_and(|o| is_origin_allowed(Some(o)));
-        return Response::empty(if allowed { 204 } else { 403 });
-    }
-
-    match (method, url) {
+pub fn handle(req: &Request, shared: &Shared, config: &Config) -> Response {
+    match (req.method.as_str(), req.url.as_str()) {
         ("POST", "/event") => post_event(req, shared),
         ("GET", "/health") => {
             let state = lock(shared);
@@ -75,18 +50,7 @@ fn route(req: &Request, shared: &Shared, config: &Config) -> Response {
                 }),
             )
         }
-        ("GET", "/config") => {
-            let username = ["USER", "USERNAME"]
-                .iter()
-                .filter_map(|k| std::env::var(k).ok())
-                .find(|v| !v.is_empty())
-                .unwrap_or_else(|| "claude-user".to_string());
-            Response::json(
-                200,
-                &json!({ "username": username, "hostname": hostname() }),
-            )
-        }
-        _ => static_file(url, config),
+        (_, url) => static_file(url, config),
     }
 }
 
@@ -98,12 +62,6 @@ fn post_event(req: &Request, shared: &Shared) -> Response {
     };
     lock(shared).add_event(event);
     Response::json(200, &json!({ "ok": true }))
-}
-
-fn hostname() -> String {
-    fs::read_to_string("/proc/sys/kernel/hostname")
-        .map(|h| h.trim().to_string())
-        .unwrap_or_default()
 }
 
 /// decodeURIComponent: strict %XX decoding into valid UTF-8

@@ -20,21 +20,8 @@
         <div id="scene-hud">
           <div class="scene-badge unified-hud">
             <div id="status-dot"></div>
-            <span id="username" class="hud-user">...</span>
             <span id="status-text"></span>
-            <span class="hud-sep">|</span>
-            <button id="settings-btn" class="hud-btn" title="Settings">⚙️</button>
-            <!-- Debug: FPS counter (uncomment to enable)
-            <span class="hud-sep">|</span>
-            <span id="fps" class="hud-fps">-- FPS</span>
-            -->
           </div>
-        </div>
-
-        <!-- Dev Panel (animations test) - hidden by default -->
-        <div id="dev-panel" class="hidden">
-          <div class="dev-header">🎬 Animations</div>
-          <div id="dev-animations"></div>
         </div>
 
         <!-- Keybind Helper (bottom-left) -->
@@ -46,50 +33,6 @@
 
       </div>
 
-    </div>
-
-    <!-- Settings Modal -->
-    <div id="settings-modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>Settings</h3>
-        </div>
-
-        <div class="modal-field">
-          <label>Privacy</label>
-          <div class="settings-checkbox-row">
-            <label class="checkbox-label">
-              <input type="checkbox" id="settings-streaming-mode" />
-              <span>Streaming Mode</span>
-            </label>
-            <span class="field-hint-inline">Hide username for privacy</span>
-          </div>
-        </div>
-
-        <div class="modal-field">
-          <label>World</label>
-          <div class="settings-slider-row">
-            <span class="slider-label">Grid Size</span>
-            <input type="range" id="settings-grid-size" class="settings-slider" min="5" max="80" value="20" />
-            <span id="settings-grid-size-value" class="slider-value">20</span>
-          </div>
-          <div class="field-hint">Number of hex rings from center. Larger = more space, may impact performance.</div>
-        </div>
-
-        <div class="modal-field">
-          <label>Agent Connection</label>
-          <div class="settings-port-row">
-            <span class="port-label">localhost:</span>
-            <input type="number" id="settings-port" value="4003" min="1" max="65535" />
-            <span id="settings-port-status" class="port-status"></span>
-          </div>
-          <div class="field-hint">Port where the Vibecraft agent is running. Changes require refresh.</div>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" class="modal-btn modal-btn-cancel" id="settings-close">✕ Close</button>
-        </div>
-      </div>
     </div>
 
     <!-- Not Connected Overlay -->

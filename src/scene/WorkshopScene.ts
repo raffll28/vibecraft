@@ -90,7 +90,6 @@ export class WorkshopScene {
   // Camera modes
   public cameraMode: CameraMode = 'focused'
   public focusedZoneId: string | null = null
-  private onCameraModeChange: ((mode: CameraMode) => void) | null = null
 
   // Camera animation
   private cameraTargetPos = new THREE.Vector3()
@@ -116,18 +115,6 @@ export class WorkshopScene {
   private lastInteractionTime = 0
   private lastFrameTime = 0
 
-  // Click pulse effects (ring expands, hex fades)
-  private clickPulses: Array<{
-    mesh: THREE.Mesh | THREE.Line
-    age: number
-    maxAge: number
-    type?: 'ring' | 'hex' | 'ripple'
-    delay?: number  // Delay before animation starts (for ripple effect)
-    startOpacity?: number  // Peak opacity when flashing
-    baseOpacity?: number  // Opacity to fade back to (matches permanent grid)
-    highlightColor?: THREE.Color  // Color to flash to
-    baseColor?: THREE.Color  // Color to fade back to
-  }> = []
 
   // Station glow pulses (brief highlight when tool uses station)
   private stationPulses: Array<{
@@ -160,13 +147,8 @@ export class WorkshopScene {
   // World hex grid overlay
   private worldHexGrid: THREE.Group | THREE.LineSegments | null = null
 
-  // Hex hover highlight
-  private hoverHighlight: THREE.Line | null = null
-  private hoverRaycaster = new THREE.Raycaster()
-  private hoverMouse = new THREE.Vector2()
-
   // World grid size (number of hex rings from center)
-  private gridRange = 20
+  private readonly gridRange = 20
 
   constructor(container: HTMLElement) {
     this.container = container
@@ -219,10 +201,8 @@ export class WorkshopScene {
 
     // Setup
     this.setupLighting()
-    this.createWorldFloor()  // Invisible, just for click detection
     this.createWorldHexGrid()
     this.createAmbientParticles()
-    this.setupHoverHighlight()
 
     // Initialize zone notification system
     this.zoneNotifications = new ZoneNotifications(this.scene)
@@ -234,70 +214,9 @@ export class WorkshopScene {
     window.addEventListener('resize', this.handleResize)
   }
 
-  /**
-   * Setup hex hover highlight effect
-   */
-  private setupHoverHighlight(): void {
-    // Create hex outline for hover highlight
-    const hexRadius = this.hexGrid.hexRadius
-    const points: THREE.Vector3[] = []
-    for (let i = 0; i <= 6; i++) {
-      const angle = (Math.PI / 3) * i - Math.PI / 2
-      points.push(new THREE.Vector3(
-        hexRadius * Math.cos(angle),
-        0.03,
-        hexRadius * Math.sin(angle)
-      ))
-    }
-
-    const geometry = new THREE.BufferGeometry().setFromPoints(points)
-    const material = new THREE.LineBasicMaterial({
-      color: 0x8eeeff,  // Light cyan
-      transparent: true,
-      opacity: 0.7,
-    })
-
-    this.hoverHighlight = new THREE.Line(geometry, material)
-    this.hoverHighlight.visible = false
-    this.scene.add(this.hoverHighlight)
-
-    // Listen for mouse movement
-    this.renderer.domElement.addEventListener('mousemove', this.handleHover)
-    this.renderer.domElement.addEventListener('mouseleave', this.handleHoverLeave)
-  }
-
   /** Keep rendering at full frame rate for a moment after user input */
   private markInteraction = (): void => {
     this.lastInteractionTime = performance.now()
-  }
-
-  private handleHover = (event: MouseEvent): void => {
-    this.markInteraction()
-    if (!this.hoverHighlight || !this.worldFloor) return
-
-    const rect = this.renderer.domElement.getBoundingClientRect()
-    this.hoverMouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-    this.hoverMouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-
-    this.hoverRaycaster.setFromCamera(this.hoverMouse, this.camera)
-    const intersects = this.hoverRaycaster.intersectObject(this.worldFloor)
-
-    if (intersects.length > 0) {
-      const point = intersects[0].point
-      const hexCoord = this.hexGrid.cartesianToHex(point.x, point.z)
-      const hexCenter = this.hexGrid.axialToCartesian(hexCoord)
-
-      this.hoverHighlight.position.set(hexCenter.x, 0, hexCenter.z)
-      this.hoverHighlight.visible = true
-    } else {
-      this.hoverHighlight.visible = false
-    }
-  }
-
-  private handleHoverLeave = (): void => {
-    if (this.hoverHighlight) {
-      this.hoverHighlight.visible = false
-    }
   }
 
   /**
@@ -491,7 +410,6 @@ export class WorkshopScene {
       this.camera.position.copy(cameraPos)
     }
 
-    this.notifyCameraModeChange()
   }
 
   /**
@@ -526,7 +444,6 @@ export class WorkshopScene {
     const targetPos = new THREE.Vector3(centerX, height, centerZ + extent * 0.3)
 
     this.animateCameraTo(targetPos, targetLookAt)
-    this.notifyCameraModeChange()
   }
 
   /**
@@ -543,7 +460,6 @@ export class WorkshopScene {
    */
   setFollowActiveMode(): void {
     this.cameraMode = 'follow-active'
-    this.notifyCameraModeChange()
   }
 
   /**
@@ -552,19 +468,6 @@ export class WorkshopScene {
   getZoneByIndex(index: number): Zone | undefined {
     const zones = Array.from(this.zones.values())
     return zones[index]
-  }
-
-  /**
-   * Register callback for camera mode changes
-   */
-  onCameraMode(callback: (mode: CameraMode) => void): void {
-    this.onCameraModeChange = callback
-  }
-
-  private notifyCameraModeChange(): void {
-    if (this.onCameraModeChange) {
-      this.onCameraModeChange(this.cameraMode)
-    }
   }
 
   /**
@@ -1194,26 +1097,6 @@ export class WorkshopScene {
     this.scene.add(hemi)
   }
 
-  // World floor for empty-space click detection
-  public worldFloor: THREE.Mesh | null = null
-
-  /**
-   * Create an invisible floor plane for click detection only
-   * (hex grid provides the visual floor)
-   */
-  private createWorldFloor(): void {
-    const floorGeometry = new THREE.PlaneGeometry(500, 500)
-    const floorMaterial = new THREE.MeshBasicMaterial({
-      visible: false,  // Invisible - just for raycasting
-    })
-    const floor = new THREE.Mesh(floorGeometry, floorMaterial)
-    floor.rotation.x = -Math.PI / 2
-    floor.position.y = -0.05
-    floor.name = 'worldFloor'
-    this.scene.add(floor)
-    this.worldFloor = floor
-  }
-
   /**
    * Create a world-level hex grid overlay
    * Renders subtle hex outlines across the floor to establish
@@ -1494,9 +1377,6 @@ export class WorkshopScene {
         this.finalizeZoneDelete(zoneId)
       }
 
-      // Update click pulses
-      this.updateClickPulses(delta)
-
       // Update station pulses
       this.updateStationPulses(delta)
 
@@ -1676,179 +1556,6 @@ export class WorkshopScene {
   }
 
   /**
-   * Spawn a click pulse effect at a world position
-   * Creates an expanding ring + hex wave that ripples outward
-   *
-   * IMPORTANT: This uses additive blending (THREE.AdditiveBlending) which is critical.
-   *
-   * Why previous approaches failed:
-   * 1. Normal alpha blending with opacity fade: Our overlay would OBSCURE the permanent
-   *    hex grid underneath as it faded. Even at low opacity, the overlay partially blocked
-   *    the grid, making it appear darker than baseline. When removed, it "popped" back.
-   *
-   * 2. Trying to fade TO the grid's opacity (0.35): This caused stacking - our overlay
-   *    at 0.35 + permanent grid at 0.35 = brighter than normal. Couldn't match baseline.
-   *
-   * 3. Creating all hexes upfront with delays: Even with opacity 0, adding geometry
-   *    caused visual artifacts. Outer tiles would flicker before the wave reached them.
-   *
-   * Why this approach works:
-   * - Additive blending only ADDS light, never obscures. At opacity 0, it contributes
-   *   nothing, so the permanent grid shows through unchanged.
-   * - depthWrite: false prevents z-fighting with the permanent grid at y=0.01
-   * - setTimeout spawns each ring only when needed, not all at once
-   * - Simple fade from peak to 0 with ease-out curve for smooth disappearance
-   */
-  spawnClickPulse(x: number, z: number, y = 0.03): void {
-    const hexRadius = this.hexGrid.hexRadius
-    const clickedHex = this.hexGrid.cartesianToHex(x, z)
-
-    // 1. Expanding ring at click point
-    const ringGeometry = new THREE.RingGeometry(0.2, 0.4, 32)
-    const ringMaterial = new THREE.MeshBasicMaterial({
-      color: 0x8eefff,
-      transparent: true,
-      opacity: 0.9,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    })
-    const ring = new THREE.Mesh(ringGeometry, ringMaterial)
-    ring.rotation.x = -Math.PI / 2
-    ring.position.set(x, y, z)
-    this.scene.add(ring)
-
-    this.clickPulses.push({
-      mesh: ring,
-      age: 0,
-      maxAge: 0.5,
-      type: 'ring',
-    })
-
-    // 2. Hex wave - spawn each ring over time
-    const spawnHexRing = (ringNum: number, strength: number) => {
-      const hexes = ringNum === 0 ? [clickedHex] : this.getHexRing(clickedHex, ringNum)
-
-      for (const hex of hexes) {
-        const center = this.hexGrid.axialToCartesian(hex)
-        const points: THREE.Vector3[] = []
-        for (let i = 0; i <= 6; i++) {
-          const angle = (Math.PI / 3) * i - Math.PI / 2
-          points.push(new THREE.Vector3(
-            center.x + hexRadius * Math.cos(angle),
-            0.02,
-            center.z + hexRadius * Math.sin(angle)
-          ))
-        }
-
-        const geometry = new THREE.BufferGeometry().setFromPoints(points)
-        const material = new THREE.LineBasicMaterial({
-          color: 0x8eefff,
-          transparent: true,
-          opacity: strength,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        })
-        const line = new THREE.Line(geometry, material)
-        this.scene.add(line)
-
-        this.clickPulses.push({
-          mesh: line,
-          age: 0,
-          maxAge: 0.5,
-          type: 'ripple',
-          startOpacity: strength,
-        })
-      }
-    }
-
-    // Spawn rings with gentler decay so wave travels further
-    const maxRings = 7
-    const msPerRing = 45
-
-    for (let r = 0; r <= maxRings; r++) {
-      const strength = Math.pow(0.6, r)  // Gentler: 1.0 -> 0.6 -> 0.36 -> 0.22 -> 0.13 -> 0.08 -> 0.05 -> 0.03
-      if (strength < 0.03) continue  // Skip if too dim
-      if (r === 0) {
-        spawnHexRing(0, strength)
-      } else {
-        setTimeout(() => spawnHexRing(r, strength), r * msPerRing)
-      }
-    }
-  }
-
-  /**
-   * Get all hex coordinates in a ring at distance `ring` from center
-   */
-  private getHexRing(center: { q: number; r: number }, ring: number): Array<{ q: number; r: number }> {
-    if (ring === 0) return [center]
-
-    const results: Array<{ q: number; r: number }> = []
-    const directions = [
-      { q: 1, r: 0 },   { q: 1, r: -1 },  { q: 0, r: -1 },
-      { q: -1, r: 0 },  { q: -1, r: 1 },  { q: 0, r: 1 },
-    ]
-
-    // Start at "east" corner
-    let hex = { q: center.q + ring, r: center.r }
-
-    for (let side = 0; side < 6; side++) {
-      for (let step = 0; step < ring; step++) {
-        results.push({ ...hex })
-        const dir = directions[(side + 2) % 6]
-        hex = { q: hex.q + dir.q, r: hex.r + dir.r }
-      }
-    }
-
-    return results
-  }
-
-  /**
-   * Update click pulse animations (called from render loop)
-   */
-  private updateClickPulses(delta: number): void {
-    for (let i = this.clickPulses.length - 1; i >= 0; i--) {
-      const pulse = this.clickPulses[i]
-
-      // Handle delay before animation starts
-      if (pulse.delay && pulse.delay > 0) {
-        pulse.delay -= delta
-        continue  // Don't animate yet
-      }
-
-      pulse.age += delta
-      const progress = pulse.age / pulse.maxAge
-
-      if (progress >= 1) {
-        // Remove finished pulse
-        this.scene.remove(pulse.mesh)
-        pulse.mesh.geometry.dispose()
-        ;(pulse.mesh.material as THREE.Material).dispose()
-        this.clickPulses.splice(i, 1)
-      } else if (pulse.type === 'ring') {
-        // Ring: expand and fade out
-        const scale = 1 + progress * 4
-        pulse.mesh.scale.set(scale, scale, 1)
-        const opacity = 0.9 * (1 - progress * progress)
-        ;(pulse.mesh.material as THREE.MeshBasicMaterial).opacity = opacity
-      } else if (pulse.type === 'ripple') {
-        // Ripple: appear at peak, fade to 0 with ease-out curve
-        const material = pulse.mesh.material as THREE.LineBasicMaterial
-        const peakOpacity = pulse.startOpacity ?? 1.0
-        // Ease-out: stays bright early, fades smoothly to 0 at end
-        const fade = Math.pow(1 - progress, 2)
-        material.opacity = peakOpacity * fade
-      } else {
-        // Hex: pulse brightness then fade out
-        const pulsePhase = Math.sin(progress * Math.PI * 2) * 0.3
-        const fadeOut = 1 - progress * progress
-        const opacity = Math.min(1, (0.7 + pulsePhase) * fadeOut)
-        ;(pulse.mesh.material as THREE.LineBasicMaterial).opacity = opacity
-      }
-    }
-  }
-
-  /**
    * Update station pulse animations (called from render loop)
    */
   private updateStationPulses(delta: number): void {
@@ -1886,53 +1593,11 @@ export class WorkshopScene {
     }
   }
 
-  // ============================================================================
-  // Floating Notifications (file changes, etc.)
-  // ============================================================================
-
-  /**
-   * Get current grid range (number of hex rings)
-   */
-  getGridRange(): number {
-    return this.gridRange
-  }
-
-  /**
-   * Set grid range and rebuild the world hex grid
-   */
-  setGridRange(range: number): void {
-    // Clamp to reasonable values
-    this.gridRange = Math.max(5, Math.min(80, range))
-
-    // Remove old grid
-    if (this.worldHexGrid) {
-      this.scene.remove(this.worldHexGrid)
-      if (this.worldHexGrid instanceof THREE.LineSegments) {
-        this.worldHexGrid.geometry.dispose()
-        ;(this.worldHexGrid.material as THREE.Material).dispose()
-      }
-      this.worldHexGrid = null
-    }
-
-    // Create new grid with updated range
-    this.createWorldHexGrid()
-  }
-
   dispose(): void {
     this.stop()
     this.clearAllContexts()
     // Clean up zone notifications (new system)
     this.zoneNotifications.dispose()
-    // Clean up click pulses
-    for (const pulse of this.clickPulses) {
-      this.scene.remove(pulse.mesh)
-      pulse.mesh.geometry.dispose()
-      ;(pulse.mesh.material as THREE.MeshBasicMaterial).dispose()
-    }
-    this.clickPulses = []
-    // Clean up hover highlight
-    this.renderer.domElement.removeEventListener('mousemove', this.handleHover)
-    this.renderer.domElement.removeEventListener('mouseleave', this.handleHoverLeave)
     window.removeEventListener('resize', this.handleResize)
     this.renderer.dispose()
     this.container.removeChild(this.renderer.domElement)

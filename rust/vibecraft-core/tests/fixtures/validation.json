@@ -18,7 +18,7 @@
     },
     {
       "input": "https://vibecraft.sh",
-      "expected": true
+      "expected": false
     },
     {
       "input": "http://vibecraft.sh",

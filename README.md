@@ -19,7 +19,9 @@ Several sessions in the same directory are told apart as `name`, `name (2)`,
 `name (3)`... Zones disappear when their session ends.
 
 Everything stays on your machine: a Claude Code hook records events, a local
-server streams them to the page, and nothing is sent anywhere else.
+server streams them to the page, and nothing is sent anywhere else. Events
+hold only what the picture needs (tool names, file names, short commands):
+never your prompts, Claude's replies, tool output or file contents.
 
 ## Requirements
 
@@ -48,7 +50,6 @@ Sessions already running pick up the hook after a restart.
 | `0` / `` ` `` | Overview of all zones |
 | `F` | Follow the active session |
 | `P` | Station panels (last tools per workstation) |
-| `Alt+D` | Animation test panel |
 
 Click a zone to focus it, right-click it to dismiss it.
 

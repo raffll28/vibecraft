@@ -1,9 +1,8 @@
-//! Server contract: HTTP endpoints (health, config, CORS, static files).
+//! Server contract: HTTP endpoints (health, static files).
 
 use std::fs;
 use std::path::PathBuf;
 
-use serde_json::json;
 use vibecraft_testkit::{ALLOWED_ORIGIN, TestEnv, TestServer};
 
 const SERVER: &str = env!("CARGO_BIN_EXE_vibecraft-server");
@@ -24,58 +23,29 @@ fn health() {
 }
 
 #[test]
-fn config() {
-    let env = TestEnv::new();
-    let server = TestServer::start(SERVER, &env, &[("USER", "tester")]);
-    let hostname = fs::read_to_string("/proc/sys/kernel/hostname").unwrap();
-    assert_eq!(
-        server.get_json("/config").1,
-        json!({ "username": "tester", "hostname": hostname.trim() })
-    );
-}
-
-// ============================================================================
-// CORS
-// ============================================================================
-
-#[test]
-fn cors_echoes_allowed_origins() {
+fn no_cors_and_no_config_endpoint() {
+    // Only the page this server serves talks to it: no other site may read it
     let env = TestEnv::new();
     let server = TestServer::start(SERVER, &env, &[]);
     let res = server.request("GET", "/health", None, &[("Origin", ALLOWED_ORIGIN)]);
-    assert_eq!(
-        res.header("access-control-allow-origin"),
-        Some(ALLOWED_ORIGIN)
+    assert!(
+        res.headers
+            .iter()
+            .all(|(k, _)| !k.starts_with("access-control-"))
     );
-    assert_eq!(
-        res.header("access-control-allow-methods"),
-        Some("GET, POST, OPTIONS")
+    let preflight = server.request(
+        "OPTIONS",
+        "/event",
+        None,
+        &[("Origin", "http://evil.example")],
     );
-    assert_eq!(
-        res.header("access-control-allow-headers"),
-        Some("Content-Type")
+    assert!(preflight.header("access-control-allow-origin").is_none());
+    assert_ne!(
+        server
+            .request("GET", "/config", None, &[])
+            .header("content-type"),
+        Some("application/json")
     );
-}
-
-#[test]
-fn cors_omits_headers_for_other_origins() {
-    let env = TestEnv::new();
-    let server = TestServer::start(SERVER, &env, &[]);
-    let res = server.request("GET", "/health", None, &[("Origin", "http://evil.example")]);
-    assert_eq!(res.header("access-control-allow-origin"), None);
-}
-
-#[test]
-fn preflight_204_for_allowed_origins_403_otherwise() {
-    let env = TestEnv::new();
-    let server = TestServer::start(SERVER, &env, &[]);
-    let preflight = |origin: Option<&str>| {
-        let headers: Vec<(&str, &str)> = origin.map(|o| ("Origin", o)).into_iter().collect();
-        server.request("OPTIONS", "/event", None, &headers).status
-    };
-    assert_eq!(preflight(Some(ALLOWED_ORIGIN)), 204);
-    assert_eq!(preflight(Some("http://evil.example")), 403);
-    assert_eq!(preflight(None), 403);
 }
 
 // ============================================================================

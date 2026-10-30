@@ -2,9 +2,10 @@
 
 use std::path::{Component, Path, PathBuf};
 
-/// Should a browser `Origin` be allowed (WebSocket and CORS)?
+/// Should a browser `Origin` be allowed to open the WebSocket?
 ///
-/// Allows localhost and 127.0.0.1 on any port and https://vibecraft.sh.
+/// Allows localhost and 127.0.0.1 on any port: the page vibecraft-server
+/// serves. Any other site is refused, so it can't read the events.
 /// Stricter than WHATWG URL parsing: odd spellings such as `http://127.1` or
 /// `http://user@localhost` are rejected. That's the safe direction for an
 /// allowlist, and browsers always send origins in canonical form.
@@ -48,10 +49,7 @@ pub fn is_origin_allowed(origin: Option<&str>) -> bool {
     let host = host.to_ascii_lowercase();
 
     // file://localhost has an empty hostname in WHATWG URLs
-    if (host == "localhost" || host == "127.0.0.1") && scheme != "file" {
-        return true;
-    }
-    host == "vibecraft.sh" && scheme == "https"
+    (host == "localhost" || host == "127.0.0.1") && scheme != "file"
 }
 
 /// Expand a leading `~` or `~/` to $HOME
@@ -108,6 +106,6 @@ mod tests {
         assert!(!is_origin_allowed(Some("file://localhost")));
         assert!(is_origin_allowed(Some("HTTP://LOCALHOST:4002")));
         assert!(is_origin_allowed(Some("http://localhost:")));
-        assert!(is_origin_allowed(Some("https://vibecraft.sh:443/path")));
+        assert!(!is_origin_allowed(Some("https://vibecraft.sh")));
     }
 }

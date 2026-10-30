@@ -7,7 +7,6 @@
 
 import { eventBus } from '../EventBus.ts'
 import type { PostToolUseEvent } from '../../../shared/types.ts'
-import type { BashToolInput } from '../../../shared/types.ts'
 
 // Command patterns for detecting specific bash operations
 const PATTERNS = {
@@ -29,7 +28,7 @@ function pickAnimation(event: PostToolUseEvent): string | null {
 
   // Bash command patterns - most specific first
   if (tool === 'Bash') {
-    const cmd = (toolInput as unknown as BashToolInput).command || ''
+    const cmd = toolInput.command || ''
 
     // Git operations
     if (PATTERNS.gitCommit.test(cmd) && success) return 'victoryDance'

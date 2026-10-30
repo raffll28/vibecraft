@@ -6,7 +6,6 @@
  * - 0/`: Overview mode
  * - F: Follow mode toggle
  * - P: Station panels toggle
- * - Alt+D: Dev panel toggle
  */
 
 import type { WorkshopScene } from '../scene/WorkshopScene.ts'
@@ -83,16 +82,6 @@ export function setupKeyboardShortcuts(ctx: KeyboardShortcutContext): void {
     if (e.key === 'p' || e.key === 'P') {
       const visible = !scene.stationPanels.isVisible()
       scene.stationPanels.setVisible(visible)
-      return
-    }
-
-    // Alt+D for dev panel toggle (animation testing)
-    if (e.altKey && (e.key === 'd' || e.key === 'D')) {
-      e.preventDefault()
-      const devPanel = document.getElementById('dev-panel')
-      if (devPanel) {
-        devPanel.classList.toggle('hidden')
-      }
       return
     }
   })

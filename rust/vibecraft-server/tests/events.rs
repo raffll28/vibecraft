@@ -243,7 +243,7 @@ fn rejects_connections_without_an_allowed_origin() {
     for origin in [
         None,
         Some("http://evil.example"),
-        Some("http://vibecraft.sh"),
+        Some("https://vibecraft.sh"),
     ] {
         let client = server.connect_with_origin(origin);
         assert_eq!(client.wait_close(), Some(1008), "origin {origin:?}");
@@ -251,14 +251,10 @@ fn rejects_connections_without_an_allowed_origin() {
 }
 
 #[test]
-fn accepts_localhost_127_0_0_1_and_vibecraft_sh_origins() {
+fn accepts_localhost_and_127_0_0_1_origins() {
     let env = TestEnv::new();
     let server = start(&env);
-    for origin in [
-        "http://localhost:1234",
-        "http://127.0.0.1",
-        "https://vibecraft.sh",
-    ] {
+    for origin in ["http://localhost:1234", "http://127.0.0.1"] {
         let mut client = server.connect_with_origin(Some(origin));
         client.next("history");
     }

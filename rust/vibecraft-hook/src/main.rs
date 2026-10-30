@@ -1,18 +1,16 @@
 //! Vibecraft hook - captures Claude Code events for the 3D visualization.
 //!
-//! Replaces the original bash + jq + curl hook, with the same events:
 //! 1. Reads the hook input (JSON) from stdin
 //! 2. Transforms it into a vibecraft event
 //! 3. Appends it to the events JSONL file
 //! 4. POSTs it to the vibecraft server
 //!
 //! It runs synchronously on every tool call, so it does as little as possible:
-//! no runtime dependencies, only the transcript tail is read, and it never
-//! fails in a way that would disturb Claude (it always exits 0).
+//! no runtime dependencies, no transcript reading, and it never fails in a
+//! way that would disturb Claude (it always exits 0).
 
 mod event;
 mod notify;
-mod transcript;
 
 use std::env;
 use std::fs::{self, OpenOptions};
@@ -30,17 +28,12 @@ fn main() {
         return;
     };
 
-    let max_chars = env::var("VIBECRAFT_MAX_RESPONSE_CHARS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(4096);
-
     let now_us = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_micros())
         .unwrap_or(0);
 
-    let Some(event) = event::build(&hook, now_us, max_chars) else {
+    let Some(event) = event::build(&hook, now_us) else {
         return;
     };
     let Ok(mut line) = serde_json::to_string(&event) else {

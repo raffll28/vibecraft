@@ -17,9 +17,8 @@ export function registerSubagentHandlers(): void {
     if (!ctx.session) return
     if (event.tool !== 'Task') return
 
-    const description = (event.toolInput as { description?: string }).description
+    const description = event.toolInput.description
     ctx.session.subagents.spawn(event.toolUseId, description)
-    ctx.session.stats.activeSubagents = ctx.session.subagents.count
   })
 
   // Remove subagent when Task tool completes
@@ -28,6 +27,5 @@ export function registerSubagentHandlers(): void {
     if (event.tool !== 'Task') return
 
     ctx.session.subagents.remove(event.toolUseId)
-    ctx.session.stats.activeSubagents = ctx.session.subagents.count
   })
 }

@@ -15,7 +15,6 @@ import type { ICharacter, CharacterOptions, CharacterState } from './ICharacter.
 import {
   IdleBehaviorManager,
   WorkingBehaviorManager,
-  STATION_ANIMATIONS,
   type CharacterParts,
 } from './animations/index.ts'
 
@@ -721,9 +720,6 @@ export class Claude implements ICharacter {
   // ============================================================================
 
   /** Get list of idle behavior names (for dev UI) */
-  getIdleBehaviorNames(): string[] {
-    return this.idleBehaviorManager.getBehaviorNames()
-  }
 
   /** Force play a specific idle behavior (for dev/testing) */
   playIdleBehavior(name: string): boolean {
@@ -744,16 +740,8 @@ export class Claude implements ICharacter {
   }
 
   /** Get list of station working behavior names (for dev UI) */
-  getWorkingBehaviorStations(): string[] {
-    return Object.keys(STATION_ANIMATIONS)
-  }
 
   /** Force play a specific station's working behavior (for dev/testing) */
-  playWorkingBehavior(station: string): void {
-    // Force to working state at specified station
-    this.currentStation = station as StationType
-    this.setState('working')
-  }
 
   dispose(): void {
     if (this.updateCallback) {

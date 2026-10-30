@@ -2,23 +2,13 @@
  * HexGrid - Hexagonal grid utilities for zone placement
  *
  * Uses pointy-top hexagonal layout with axial coordinates (q, r).
- * Provides coordinate conversions, occupancy tracking, and placement algorithms.
- *
- * Coordinate systems:
- * - Axial (q, r): Column and row in hex grid
- * - Cube (x, y, z): 3D representation where x + y + z = 0
- * - Cartesian (x, z): World space coordinates
+ * Converts axial coordinates (q, r) to world positions (x, z), tracks which
+ * hexes are occupied, and hands out the next free hex in a spiral.
  */
 
 export interface HexCoord {
   q: number  // axial column
   r: number  // axial row
-}
-
-interface CubeCoord {
-  x: number
-  y: number
-  z: number
 }
 
 // Direction vectors for the 6 neighbors (pointy-top, counterclockwise from east)
@@ -65,65 +55,7 @@ export class HexGrid {
     return { x, z }
   }
 
-  /**
-   * Convert world cartesian coordinates to fractional axial coordinates
-   * Result needs rounding to get actual hex cell
-   */
-  cartesianToAxial(x: number, z: number): { q: number; r: number } {
-    const r = z / (this.hexHeight * 0.75)
-    const q = x / this.hexWidth - r / 2
-    return { q, r }
-  }
-
-  /**
-   * Round fractional axial coordinates to nearest hex center
-   * Uses cube coordinate conversion for accurate rounding
-   */
-  roundToHex(q: number, r: number): HexCoord {
-    // Convert to cube coordinates
-    const cube = this.axialToCube({ q, r })
-
-    // Round each component
-    let rx = Math.round(cube.x)
-    let ry = Math.round(cube.y)
-    let rz = Math.round(cube.z)
-
-    // Fix rounding errors - cube coords must sum to 0
-    const dx = Math.abs(rx - cube.x)
-    const dy = Math.abs(ry - cube.y)
-    const dz = Math.abs(rz - cube.z)
-
-    if (dx > dy && dx > dz) {
-      rx = -ry - rz
-    } else if (dy > dz) {
-      ry = -rx - rz
-    } else {
-      rz = -rx - ry
-    }
-
-    // Convert back to axial
-    return this.cubeToAxial({ x: rx, y: ry, z: rz })
-  }
-
-  /**
-   * Convert cartesian to the nearest hex cell
-   */
-  cartesianToHex(x: number, z: number): HexCoord {
-    const { q, r } = this.cartesianToAxial(x, z)
-    return this.roundToHex(q, r)
-  }
-
   // Cube ↔ Axial conversions (internal)
-  private axialToCube(hex: HexCoord): CubeCoord {
-    const x = hex.q
-    const z = hex.r
-    const y = -x - z
-    return { x, y, z }
-  }
-
-  private cubeToAxial(cube: CubeCoord): HexCoord {
-    return { q: cube.x, r: cube.z }
-  }
 
   // ============================================================================
   // Hex Operations
@@ -167,13 +99,6 @@ export class HexGrid {
     return this.occupied.has(this.hexKey(hex))
   }
 
-  /**
-   * Get count of occupied hexes
-   */
-  get occupiedCount(): number {
-    return this.occupied.size
-  }
-
   // ============================================================================
   // Placement Algorithms
   // ============================================================================
@@ -201,35 +126,6 @@ export class HexGrid {
   // ============================================================================
   // Internal: Spiral Generation
   // ============================================================================
-
-  /**
-   * Get all hexes in a ring at a given distance from center
-   */
-  private getHexesInRing(center: HexCoord, ring: number): HexCoord[] {
-    if (ring === 0) return [center]
-
-    const results: HexCoord[] = []
-
-    // Start at "east" corner of ring
-    let hex: HexCoord = {
-      q: center.q + ring,
-      r: center.r,
-    }
-
-    // Walk around the ring (6 sides, `ring` steps per side)
-    for (let side = 0; side < 6; side++) {
-      for (let step = 0; step < ring; step++) {
-        results.push({ ...hex })
-        // Move to next hex along this side
-        hex = {
-          q: hex.q + HEX_DIRECTIONS[(side + 2) % 6].q,
-          r: hex.r + HEX_DIRECTIONS[(side + 2) % 6].r,
-        }
-      }
-    }
-
-    return results
-  }
 
   /**
    * Convert linear index to hex coordinate using spiral pattern

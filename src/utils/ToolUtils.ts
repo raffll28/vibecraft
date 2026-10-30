@@ -5,17 +5,19 @@
  * in the UI (context strings)
  */
 
+import type { ToolInputSummary } from '../../shared/types.ts'
+
 /**
  * Extract context string from tool input for display
  * Returns a short, human-readable summary of what the tool is operating on
  */
-export function getToolContext(tool: string, input: Record<string, unknown>): string | null {
+export function getToolContext(tool: string, input: ToolInputSummary): string | null {
   switch (tool) {
     case 'Read':
     case 'Write':
     case 'Edit':
     case 'NotebookEdit': {
-      const path = (input.file_path || input.notebook_path) as string
+      const path = input.file_path || input.notebook_path
       if (path) {
         // Show just filename or last path component
         return path.split('/').pop() || path
@@ -23,7 +25,7 @@ export function getToolContext(tool: string, input: Record<string, unknown>): st
       return null
     }
     case 'Bash': {
-      const cmd = input.command as string
+      const cmd = input.command
       if (cmd) {
         // Show first part of command
         const firstLine = cmd.split('\n')[0]
@@ -32,15 +34,15 @@ export function getToolContext(tool: string, input: Record<string, unknown>): st
       return null
     }
     case 'Grep': {
-      const pattern = input.pattern as string
+      const pattern = input.pattern
       return pattern ? `/${pattern}/` : null
     }
     case 'Glob': {
-      const pattern = input.pattern as string
+      const pattern = input.pattern
       return pattern || null
     }
     case 'WebFetch': {
-      const url = input.url as string
+      const url = input.url
       if (url) {
         try {
           const hostname = new URL(url).hostname
@@ -52,11 +54,11 @@ export function getToolContext(tool: string, input: Record<string, unknown>): st
       return null
     }
     case 'WebSearch': {
-      const query = input.query as string
+      const query = input.query
       return query ? `"${query}"` : null
     }
     case 'Task': {
-      const desc = input.description as string
+      const desc = input.description
       return desc || null
     }
     case 'TodoWrite':

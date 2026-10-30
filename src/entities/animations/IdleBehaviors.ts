@@ -826,9 +826,6 @@ export class IdleBehaviorManager {
   }
 
   /** Get list of all behavior names (for dev UI) */
-  getBehaviorNames(): string[] {
-    return this.behaviors.map(b => b.name)
-  }
 
   /** Force play a specific behavior by name (for dev/testing) */
   forcePlay(name: string, parts: CharacterParts): boolean {

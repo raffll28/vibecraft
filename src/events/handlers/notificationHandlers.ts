@@ -22,93 +22,64 @@ export function registerNotificationHandlers(): void {
   eventBus.on('post_tool_use', (event: PostToolUseEvent, ctx) => {
     if (!event.success || !ctx.scene) return
 
-    const input = event.toolInput as Record<string, unknown>
+    const input = event.toolInput
+    const fileName = input.file_path?.split('/').pop() || input.file_path
     let notificationText: string | null = null
 
     switch (event.tool) {
       case 'Edit': {
-        const filePath = input.file_path as string | undefined
-        if (filePath) {
-          const fileName = filePath.split('/').pop() || filePath
-          const oldStr = input.old_string as string | undefined
-          const newStr = input.new_string as string | undefined
-          if (oldStr && newStr) {
-            const oldLines = (oldStr.match(/\n/g) || []).length + 1
-            const newLines = (newStr.match(/\n/g) || []).length + 1
-            const added = Math.max(0, newLines - oldLines)
-            const removed = Math.max(0, oldLines - newLines)
-            notificationText = formatFileChange(fileName, { added, removed })
-          } else {
-            notificationText = fileName
-          }
+        if (fileName) {
+          const { old_lines: oldLines, new_lines: newLines } = input
+          notificationText = oldLines && newLines
+            ? formatFileChange(fileName, {
+              added: Math.max(0, newLines - oldLines),
+              removed: Math.max(0, oldLines - newLines),
+            })
+            : fileName
         }
         break
       }
       case 'Write': {
-        const filePath = input.file_path as string | undefined
-        if (filePath) {
-          const fileName = filePath.split('/').pop() || filePath
-          const content = input.content as string | undefined
-          if (content) {
-            const lines = (content.match(/\n/g) || []).length + 1
-            notificationText = formatFileChange(fileName, { lines })
-          } else {
-            notificationText = fileName
-          }
+        if (fileName) {
+          notificationText = input.content_lines
+            ? formatFileChange(fileName, { lines: input.content_lines })
+            : fileName
         }
         break
       }
       case 'Read': {
-        const filePath = input.file_path as string | undefined
-        if (filePath) {
-          notificationText = filePath.split('/').pop() || filePath
-        }
+        if (fileName) notificationText = fileName
         break
       }
       case 'Bash': {
-        const command = input.command as string | undefined
-        if (command) {
-          notificationText = formatCommandResult(command)
-        }
+        if (input.command) notificationText = formatCommandResult(input.command)
         break
       }
       case 'Grep':
       case 'Glob': {
-        const pattern = input.pattern as string | undefined
-        if (pattern) {
-          notificationText = formatSearchResult(pattern)
-        }
+        if (input.pattern) notificationText = formatSearchResult(input.pattern)
         break
       }
       case 'WebFetch':
       case 'WebSearch': {
-        const url = input.url as string | undefined
-        const query = input.query as string | undefined
-        if (url) {
+        if (input.url) {
           // Extract domain from URL
           try {
-            const domain = new URL(url).hostname
-            notificationText = domain
+            notificationText = new URL(input.url).hostname
           } catch {
-            notificationText = url.slice(0, 30)
+            notificationText = input.url.slice(0, 30)
           }
-        } else if (query) {
-          notificationText = formatSearchResult(query)
+        } else if (input.query) {
+          notificationText = formatSearchResult(input.query)
         }
         break
       }
       case 'Task': {
-        const description = input.description as string | undefined
-        if (description) {
-          notificationText = description.slice(0, 25)
-        }
+        if (input.description) notificationText = input.description.slice(0, 25)
         break
       }
       case 'TodoWrite': {
-        const todos = input.todos as Array<{ content?: string }> | undefined
-        if (todos && todos.length > 0) {
-          notificationText = `${todos.length} items`
-        }
+        if (input.todo_count) notificationText = `${input.todo_count} items`
         break
       }
     }

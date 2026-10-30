@@ -9,7 +9,7 @@
 
 import './styles/index.css'
 import * as THREE from 'three'
-import { WorkshopScene, type Zone, type CameraMode } from './scene/WorkshopScene.ts'
+import { WorkshopScene, type Zone } from './scene/WorkshopScene.ts'
 import { Claude } from './entities/ClaudeMon.ts'      // Robot buddy character
 import { SubagentManager } from './entities/SubagentManager.ts'
 import { EventClient } from './events/EventClient.ts'
@@ -24,22 +24,8 @@ import { setupKeyboardShortcuts } from './ui/KeyboardShortcuts.ts'
 // Configuration
 // ============================================================================
 
-// Port configuration: URL param > localStorage > default from shared/defaults.ts
-function getAgentPort(): number {
-  const params = new URLSearchParams(window.location.search)
-  const urlPort = params.get('port')
-  if (urlPort) return parseInt(urlPort, 10)
-
-  const storedPort = localStorage.getItem('vibecraft-agent-port')
-  if (storedPort) return parseInt(storedPort, 10)
-
-  return DEFAULTS.SERVER_PORT
-}
-
-const AGENT_PORT = getAgentPort()
-
-const WS_URL = `ws://localhost:${AGENT_PORT}`
-const API_URL = `http://localhost:${AGENT_PORT}`
+// The page is served by vibecraft-server, which is also the WebSocket endpoint
+const WS_URL = `ws://${location.host}`
 
 // ============================================================================
 // State
@@ -53,11 +39,6 @@ interface SessionState {
   color: number
   /** Zone label: the directory name, with " (2)" etc. for repeats */
   name: string
-  stats: {
-    toolsUsed: number
-    filesTouched: Set<string>
-    activeSubagents: number
-  }
 }
 
 interface AppState {
@@ -132,11 +113,6 @@ function getOrCreateSession(event: ClaudeEvent): SessionState | null {
     zone,
     color: zone.color,
     name,
-    stats: {
-      toolsUsed: 0,
-      filesTouched: new Set(),
-      activeSubagents: 0,
-    },
   }
 
   state.sessions.set(sessionId, session)
@@ -202,7 +178,6 @@ function handleEvent(event: ClaudeEvent) {
       claude: session.claude,
       subagents: session.subagents,
       zone: session.zone,
-      stats: session.stats,
     } : null,
   }
   eventBus.emit(event.type as EventType, event as any, eventContext)
@@ -214,27 +189,8 @@ function handleEvent(event: ClaudeEvent) {
     state.scene?.pulseZone(event.sessionId)
   }
 
-  switch (event.type) {
-    case 'pre_tool_use': {
-      const filePath = (event.toolInput as { file_path?: string }).file_path
-      if (filePath) {
-        session.stats.filesTouched.add(filePath)
-      }
-      break
-    }
-
-    case 'post_tool_use':
-      session.stats.toolsUsed++
-      break
-
-    case 'session_start':
-      session.stats.toolsUsed = 0
-      session.stats.filesTouched.clear()
-      break
-
-    case 'session_end':
-      removeSession(event.sessionId)
-      break
+  if (event.type === 'session_end') {
+    removeSession(event.sessionId)
   }
 }
 
@@ -318,16 +274,6 @@ function setupMouseHandling(): void {
     if (clickedZone) {
       state.userChangedCamera = true
       focusSession(clickedZone)
-      return
-    }
-
-    // Clicking the floor just shows a pulse
-    if (state.scene.worldFloor) {
-      const floorIntersects = raycaster.intersectObject(state.scene.worldFloor)
-      if (floorIntersects.length > 0) {
-        const point = floorIntersects[0].point
-        state.scene.spawnClickPulse(point.x, point.z)
-      }
     }
   })
 
@@ -351,133 +297,8 @@ function setupMouseHandling(): void {
   })
 }
 
-/**
- * Update the keybind helper UI based on current camera mode
- */
-function updateKeybindHelper(mode: CameraMode): void {
-  const modeLabel = document.getElementById('camera-mode-label')
-  const modeDesc = document.getElementById('camera-mode-desc')
-
-  if (modeLabel && modeDesc) {
-    switch (mode) {
-      case 'focused':
-        modeLabel.textContent = 'Focused'
-        modeDesc.textContent = (state.focusedSessionId && state.sessions.get(state.focusedSessionId)?.name) || 'none'
-        break
-      case 'overview':
-        modeLabel.textContent = 'Overview'
-        modeDesc.textContent = 'all sessions'
-        break
-      case 'follow-active':
-        modeLabel.textContent = 'Follow'
-        modeDesc.textContent = 'auto-tracking'
-        break
-    }
-  }
-}
-
-/**
- * Setup the dev panel for testing animations
- * Toggle with Alt+D
- */
-function setupDevPanel(): void {
-  const devPanel = document.getElementById('dev-panel')
-  const animationsContainer = document.getElementById('dev-animations')
-  if (!devPanel || !animationsContainer) return
-
-  // Helper to get target Claude
-  const getTargetClaude = (): InstanceType<typeof Claude> | null => {
-    if (state.focusedSessionId) {
-      const claude = state.sessions.get(state.focusedSessionId)?.claude
-      if (claude) return claude
-    }
-    for (const session of state.sessions.values()) {
-      return session.claude
-    }
-    return null
-  }
-
-  // We need to wait for a session to exist to get the behavior names
-  const checkForSession = () => {
-    let claude: InstanceType<typeof Claude> | null = null
-    for (const session of state.sessions.values()) {
-      claude = session.claude
-      break
-    }
-
-    if (!claude) {
-      setTimeout(checkForSession, 1000)
-      return
-    }
-
-    animationsContainer.innerHTML = ''
-
-    // --- Idle Behaviors Section ---
-    const idleHeader = document.createElement('div')
-    idleHeader.className = 'dev-section-header'
-    idleHeader.textContent = 'Idle'
-    animationsContainer.appendChild(idleHeader)
-
-    const behaviors = claude.getIdleBehaviorNames()
-    for (const name of behaviors) {
-      const btn = document.createElement('button')
-      btn.className = 'dev-anim-btn'
-      btn.textContent = name
-      btn.addEventListener('click', () => {
-        const target = getTargetClaude()
-        if (target) {
-          target.playIdleBehavior(name)
-          document.querySelectorAll('.dev-anim-btn').forEach(b => b.classList.remove('playing'))
-          btn.classList.add('playing')
-          setTimeout(() => btn.classList.remove('playing'), 2000)
-        }
-      })
-      animationsContainer.appendChild(btn)
-    }
-
-    // --- Working Behaviors Section ---
-    const workingHeader = document.createElement('div')
-    workingHeader.className = 'dev-section-header'
-    workingHeader.textContent = 'Working (by station)'
-    animationsContainer.appendChild(workingHeader)
-
-    const stations = claude.getWorkingBehaviorStations()
-    for (const station of stations) {
-      const btn = document.createElement('button')
-      btn.className = 'dev-anim-btn dev-anim-btn-working'
-      btn.textContent = station
-      btn.addEventListener('click', () => {
-        const target = getTargetClaude()
-        if (target) {
-          target.playWorkingBehavior(station)
-          document.querySelectorAll('.dev-anim-btn').forEach(b => b.classList.remove('playing'))
-          btn.classList.add('playing')
-          // Working behaviors loop, so keep playing indicator longer
-          setTimeout(() => btn.classList.remove('playing'), 4000)
-        }
-      })
-      animationsContainer.appendChild(btn)
-    }
-
-    // --- Stop Button ---
-    const stopBtn = document.createElement('button')
-    stopBtn.className = 'dev-anim-btn dev-anim-btn-stop'
-    stopBtn.textContent = '⏹ Stop → Idle'
-    stopBtn.addEventListener('click', () => {
-      const target = getTargetClaude()
-      if (target) {
-        target.setState('idle')
-        document.querySelectorAll('.dev-anim-btn').forEach(b => b.classList.remove('playing'))
-      }
-    })
-    animationsContainer.appendChild(stopBtn)
-  }
-
-  checkForSession()
-}
-
 // ============================================================================
-// HUD and Settings
+// HUD
 // ============================================================================
 
 function updateStatus(connected: boolean, text?: string) {
@@ -496,130 +317,6 @@ function updateStatus(connected: boolean, text?: string) {
       textEl.textContent = ''
     }
   }
-}
-
-async function fetchConfig() {
-  try {
-    const response = await fetch(`${API_URL}/config`)
-    const data = await response.json()
-    const usernameEl = document.getElementById('username')
-    if (usernameEl && data.username) {
-      usernameEl.textContent = data.username
-    }
-  } catch (e) {
-    console.log('Could not fetch config:', e)
-  }
-}
-
-/**
- * Setup settings modal
- */
-function setupSettingsModal(): void {
-  const settingsBtn = document.getElementById('settings-btn')
-  const modal = document.getElementById('settings-modal')
-  const closeBtn = document.getElementById('settings-close')
-  const streamingCheckbox = document.getElementById('settings-streaming-mode') as HTMLInputElement | null
-  const gridSizeSlider = document.getElementById('settings-grid-size') as HTMLInputElement | null
-  const gridSizeValue = document.getElementById('settings-grid-size-value')
-
-  if (!modal) return
-
-  // Port input
-  const portInput = document.getElementById('settings-port') as HTMLInputElement | null
-  const portStatus = document.getElementById('settings-port-status')
-
-  // Load saved grid size from localStorage
-  const savedGridSize = localStorage.getItem('vibecraft-grid-size')
-  if (savedGridSize !== null) {
-    const size = parseInt(savedGridSize, 10)
-    state.scene?.setGridRange(size)
-    if (gridSizeSlider) gridSizeSlider.value = savedGridSize
-    if (gridSizeValue) gridSizeValue.textContent = savedGridSize
-  }
-
-  // Load saved streaming mode setting from localStorage
-  const savedStreaming = localStorage.getItem('vibecraft-streaming-mode')
-  if (savedStreaming !== null) {
-    const enabled = savedStreaming === 'true'
-    if (streamingCheckbox) streamingCheckbox.checked = enabled
-    applyStreamingMode(enabled)
-  }
-
-  // Apply streaming mode (hide/show username)
-  function applyStreamingMode(enabled: boolean) {
-    const usernameEl = document.getElementById('username')
-    if (usernameEl) {
-      if (enabled) {
-        usernameEl.dataset.realName = usernameEl.textContent || ''
-        usernameEl.textContent = '...'
-      } else {
-        usernameEl.textContent = usernameEl.dataset.realName || usernameEl.textContent
-      }
-    }
-  }
-
-  // Open modal
-  settingsBtn?.addEventListener('click', () => {
-    // Sync grid size slider
-    if (gridSizeSlider && state.scene) {
-      const currentSize = state.scene.getGridRange()
-      gridSizeSlider.value = String(currentSize)
-      if (gridSizeValue) gridSizeValue.textContent = String(currentSize)
-    }
-    // Sync streaming mode checkbox
-    if (streamingCheckbox) {
-      streamingCheckbox.checked = localStorage.getItem('vibecraft-streaming-mode') === 'true'
-    }
-    // Sync port input
-    if (portInput) portInput.value = String(AGENT_PORT)
-    // Update port status
-    if (portStatus) {
-      const connected = state.client?.isConnected ?? false
-      portStatus.textContent = connected ? '● Connected' : '○ Disconnected'
-      portStatus.className = `port-status ${connected ? 'connected' : 'disconnected'}`
-    }
-    modal.classList.add('visible')
-  })
-
-  // Close modal
-  const closeModal = () => modal.classList.remove('visible')
-  closeBtn?.addEventListener('click', closeModal)
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) closeModal()
-  })
-
-  // Grid size slider - rebuilds hex grid on change
-  gridSizeSlider?.addEventListener('input', () => {
-    const size = parseInt(gridSizeSlider.value, 10)
-    if (gridSizeValue) gridSizeValue.textContent = String(size)
-    state.scene?.setGridRange(size)
-    localStorage.setItem('vibecraft-grid-size', String(size))
-  })
-
-  // Streaming mode checkbox
-  streamingCheckbox?.addEventListener('change', () => {
-    const enabled = streamingCheckbox.checked
-    localStorage.setItem('vibecraft-streaming-mode', String(enabled))
-    applyStreamingMode(enabled)
-  })
-
-  // Port change - save to localStorage and prompt refresh
-  portInput?.addEventListener('change', () => {
-    const newPort = parseInt(portInput.value, 10)
-    if (newPort && newPort > 0 && newPort <= 65535 && newPort !== AGENT_PORT) {
-      localStorage.setItem('vibecraft-agent-port', String(newPort))
-      if (confirm(`Port changed to ${newPort}. Reload page to connect to new port?`)) {
-        window.location.reload()
-      }
-    }
-  })
-
-  // Escape to close
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && modal.classList.contains('visible')) {
-      closeModal()
-    }
-  })
 }
 
 // ============================================================================
@@ -699,12 +396,6 @@ function init() {
   setupContextMenu()
   setupMouseHandling()
 
-  // Register camera mode change callback
-  state.scene.onCameraMode(updateKeybindHelper)
-
-  fetchConfig()
-  setupSettingsModal()
-  setupDevPanel()
   setupNotConnectedOverlay()
 
   updateStatus(false, 'Connecting...')

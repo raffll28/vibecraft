@@ -2,9 +2,9 @@
  * Vibecraft Event Types
  *
  * These types define the contract between:
- * - Hook scripts (produce events)
- * - WebSocket server (relay events)
- * - Three.js client (consume events)
+ * - the hook (rust/vibecraft-hook/src/event.rs), which produces events
+ * - the server, which relays them (adding duration to post_tool_use)
+ * - the Three.js client, which consumes them
  */
 
 // ============================================================================
@@ -58,20 +58,38 @@ export interface BaseEvent {
 // Tool Events
 // ============================================================================
 
+/**
+ * What the hook keeps of a tool's input: short text fields (truncated to 300
+ * characters), line counts instead of contents, and the number of todos
+ */
+export interface ToolInputSummary {
+  file_path?: string
+  notebook_path?: string
+  command?: string
+  pattern?: string
+  url?: string
+  query?: string
+  description?: string
+  /** Lines of Edit's old_string / new_string */
+  old_lines?: number
+  new_lines?: number
+  /** Lines of Write's content */
+  content_lines?: number
+  /** Number of TodoWrite todos */
+  todo_count?: number
+}
+
 export interface PreToolUseEvent extends BaseEvent {
   type: 'pre_tool_use'
   tool: ToolName
-  toolInput: Record<string, unknown>
+  toolInput: ToolInputSummary
   toolUseId: string
-  /** Assistant text that came before this tool call */
-  assistantText?: string
 }
 
 export interface PostToolUseEvent extends BaseEvent {
   type: 'post_tool_use'
   tool: ToolName
-  toolInput: Record<string, unknown>
-  toolResponse: Record<string, unknown>
+  toolInput: ToolInputSummary
   toolUseId: string
   success: boolean
   /** Duration in milliseconds (calculated from matching pre_tool_use) */
@@ -84,24 +102,18 @@ export interface PostToolUseEvent extends BaseEvent {
 
 export interface StopEvent extends BaseEvent {
   type: 'stop'
-  stopHookActive: boolean
-  /** Claude's text response (extracted from transcript) */
-  response?: string
 }
 
 export interface SubagentStopEvent extends BaseEvent {
   type: 'subagent_stop'
-  stopHookActive: boolean
 }
 
 export interface SessionStartEvent extends BaseEvent {
   type: 'session_start'
-  source: 'startup' | 'resume' | 'clear' | 'compact'
 }
 
 export interface SessionEndEvent extends BaseEvent {
   type: 'session_end'
-  reason: 'clear' | 'logout' | 'prompt_input_exit' | 'other'
 }
 
 // ============================================================================
@@ -110,12 +122,10 @@ export interface SessionEndEvent extends BaseEvent {
 
 export interface UserPromptSubmitEvent extends BaseEvent {
   type: 'user_prompt_submit'
-  prompt: string
 }
 
 export interface NotificationEvent extends BaseEvent {
   type: 'notification'
-  message: string
   notificationType: 'permission_prompt' | 'idle_prompt' | 'auth_success' | 'elicitation_dialog' | string
 }
 
@@ -125,8 +135,6 @@ export interface NotificationEvent extends BaseEvent {
 
 export interface PreCompactEvent extends BaseEvent {
   type: 'pre_compact'
-  trigger: 'manual' | 'auto'
-  customInstructions?: string
 }
 
 // ============================================================================
@@ -196,16 +204,4 @@ export const TOOL_STATION_MAP: Record<ToolName, StationType> = {
 /** Get station for a tool (handles unknown/MCP tools) */
 export function getStationForTool(tool: string): StationType {
   return TOOL_STATION_MAP[tool as ToolName] ?? 'center'
-}
-
-// ============================================================================
-// Utility Types
-// ============================================================================
-
-/** Extract specific tool input types */
-export interface BashToolInput {
-  command: string
-  description?: string
-  timeout?: number
-  run_in_background?: boolean
 }

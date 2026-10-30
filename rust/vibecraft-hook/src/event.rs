@@ -1,15 +1,12 @@
-//! Hook input → vibecraft event, matching the jq program of the original bash hook.
-//!
-//! jq semantics worth keeping in mind:
-//! - `x // default` replaces both null and false
-//! - `tostring` leaves strings alone and JSON-encodes everything else
-//! - string length and slicing count codepoints, not bytes
+//! Hook input → vibecraft event, with only what the frontend uses: the
+//! session, the tool and a summary of its input, success, and the
+//! notification type. Prompts, responses, tool output and file contents are
+//! never recorded.
 
 use serde_json::{Map, Value, json};
 
-use crate::transcript;
-
-/// `. // $default | tostring`
+/// The value as a string (non-strings JSON-encoded), or `default` when
+/// missing, null or false
 fn str_or(value: Option<&Value>, default: &str) -> String {
     match value {
         None | Some(Value::Null) | Some(Value::Bool(false)) => default.to_string(),
@@ -18,58 +15,83 @@ fn str_or(value: Option<&Value>, default: &str) -> String {
     }
 }
 
-/// `. // $default`
-fn or_default(value: Option<&Value>, default: Value) -> Value {
-    match value {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => default,
-        Some(v) => v.clone(),
+/// The first `max_chars` codepoints of `s`, marked when cut
+fn truncate(s: &str, max_chars: usize) -> String {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_index, _)) => format!("{}…", &s[..byte_index]),
+        None => s.to_string(),
     }
 }
 
-/// `walk(if type == "string" and length > $max then .[:$max] + "…[truncated]" else . end)`
-fn truncate_strings(value: &mut Value, max_chars: usize) {
-    match value {
-        Value::String(s) => {
-            if let Some((byte_index, _)) = s.char_indices().nth(max_chars) {
-                s.truncate(byte_index);
-                s.push_str("…[truncated]");
-            }
-        }
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|v| truncate_strings(v, max_chars)),
-        Value::Object(map) => map
-            .values_mut()
-            .for_each(|v| truncate_strings(v, max_chars)),
-        _ => {}
-    }
-}
+/// Short text fields the frontend shows (file name, command, pattern...)
+const INPUT_TEXT_KEYS: [&str; 7] = [
+    "file_path",
+    "notebook_path",
+    "command",
+    "pattern",
+    "url",
+    "query",
+    "description",
+];
 
-fn event_type(hook_event_name: Option<&Value>) -> &'static str {
-    match hook_event_name.and_then(Value::as_str) {
-        Some("PreToolUse") => "pre_tool_use",
-        Some("PostToolUse") => "post_tool_use",
-        Some("Stop") => "stop",
-        Some("SubagentStop") => "subagent_stop",
-        Some("SessionStart") => "session_start",
-        Some("SessionEnd") => "session_end",
-        Some("UserPromptSubmit") => "user_prompt_submit",
-        Some("Notification") => "notification",
-        Some("PreCompact") => "pre_compact",
-        _ => "unknown",
-    }
-}
+/// Long text fields the frontend only counts lines of: (input key, event key)
+const INPUT_LINE_KEYS: [(&str, &str); 3] = [
+    ("old_string", "old_lines"),
+    ("new_string", "new_lines"),
+    ("content", "content_lines"),
+];
 
-/// Build the event, or None for input jq would reject (non-object, non-null)
-pub fn build(hook: &Value, now_us: u128, max_chars: usize) -> Option<Value> {
-    let h = match hook {
-        Value::Object(map) => map,
-        Value::Null => &Map::new(),
-        _ => return None,
+/// Longest text kept per field
+const MAX_TEXT_CHARS: usize = 300;
+
+/// Only what the frontend uses from a tool's input: short text fields
+/// (truncated), line counts instead of file contents, and the number of todos.
+/// Keeps prompts, file contents and edits out of the events file.
+fn summarize_input(input: Option<&Value>) -> Value {
+    let mut out = Map::new();
+    let Some(input) = input.and_then(Value::as_object) else {
+        return Value::Object(out);
     };
+    for key in INPUT_TEXT_KEYS {
+        if let Some(Value::String(text)) = input.get(key) {
+            out.insert(key.into(), json!(truncate(text, MAX_TEXT_CHARS)));
+        }
+    }
+    for (key, lines_key) in INPUT_LINE_KEYS {
+        if let Some(Value::String(text)) = input.get(key)
+            && !text.is_empty()
+        {
+            out.insert(lines_key.into(), json!(text.matches('\n').count() + 1));
+        }
+    }
+    if let Some(Value::Array(todos)) = input.get("todos") {
+        out.insert("todo_count".into(), json!(todos.len()));
+    }
+    Value::Object(out)
+}
+
+fn event_type(hook_event_name: Option<&Value>) -> Option<&'static str> {
+    Some(match hook_event_name.and_then(Value::as_str)? {
+        "PreToolUse" => "pre_tool_use",
+        "PostToolUse" => "post_tool_use",
+        "Stop" => "stop",
+        "SubagentStop" => "subagent_stop",
+        "SessionStart" => "session_start",
+        "SessionEnd" => "session_end",
+        "UserPromptSubmit" => "user_prompt_submit",
+        "Notification" => "notification",
+        "PreCompact" => "pre_compact",
+        _ => return None,
+    })
+}
+
+/// Build the event, or None for input that isn't an object or for a hook
+/// event vibecraft doesn't use
+pub fn build(hook: &Value, now_us: u128) -> Option<Value> {
+    let h = hook.as_object()?;
     let get = |key: &str| h.get(key);
 
-    let event_type = event_type(get("hook_event_name"));
+    let event_type = event_type(get("hook_event_name"))?;
     let session_id = str_or(get("session_id"), "unknown");
 
     let mut event = Map::new();
@@ -82,72 +104,29 @@ pub fn build(hook: &Value, now_us: u128, max_chars: usize) -> Option<Value> {
     event.insert("sessionId".into(), json!(session_id));
     event.insert("cwd".into(), json!(str_or(get("cwd"), "")));
 
-    let transcript_path = get("transcript_path").and_then(Value::as_str);
-
     match event_type {
-        "pre_tool_use" => {
-            let entries = transcript::tail_entries(transcript_path, 30);
+        "pre_tool_use" | "post_tool_use" => {
             event.insert("tool".into(), json!(str_or(get("tool_name"), "unknown")));
-            event.insert("toolInput".into(), or_default(get("tool_input"), json!({})));
+            event.insert("toolInput".into(), summarize_input(get("tool_input")));
             event.insert("toolUseId".into(), json!(str_or(get("tool_use_id"), "")));
-            event.insert(
-                "assistantText".into(),
-                json!(transcript::assistant_text(&entries)),
-            );
-        }
-        "post_tool_use" => {
-            let mut response = or_default(get("tool_response"), json!({}));
-            truncate_strings(&mut response, max_chars);
-            // `(try $h.tool_response.success catch null) != false`
-            let success = !matches!(
-                get("tool_response")
-                    .and_then(Value::as_object)
-                    .and_then(|r| r.get("success")),
-                Some(Value::Bool(false))
-            );
-            event.insert("tool".into(), json!(str_or(get("tool_name"), "unknown")));
-            event.insert("toolInput".into(), or_default(get("tool_input"), json!({})));
-            event.insert("toolResponse".into(), response);
-            event.insert("toolUseId".into(), json!(str_or(get("tool_use_id"), "")));
-            event.insert("success".into(), json!(success));
-        }
-        "stop" | "subagent_stop" => {
-            let entries = transcript::tail_entries(transcript_path, 200);
-            event.insert(
-                "stopHookActive".into(),
-                or_default(get("stop_hook_active"), json!(false)),
-            );
-            event.insert(
-                "response".into(),
-                json!(transcript::last_response(&entries)),
-            );
-        }
-        "session_start" => {
-            event.insert("source".into(), json!(str_or(get("source"), "startup")));
-        }
-        "session_end" => {
-            event.insert("reason".into(), json!(str_or(get("reason"), "other")));
-        }
-        "user_prompt_submit" => {
-            event.insert("prompt".into(), json!(str_or(get("prompt"), "")));
+            if event_type == "post_tool_use" {
+                // Failed only when tool_response.success is false
+                let success = !matches!(
+                    get("tool_response")
+                        .and_then(Value::as_object)
+                        .and_then(|r| r.get("success")),
+                    Some(Value::Bool(false))
+                );
+                event.insert("success".into(), json!(success));
+            }
         }
         "notification" => {
-            event.insert("message".into(), json!(str_or(get("message"), "")));
             event.insert(
                 "notificationType".into(),
                 json!(str_or(get("notification_type"), "unknown")),
             );
         }
-        "pre_compact" => {
-            event.insert("trigger".into(), json!(str_or(get("trigger"), "manual")));
-            event.insert(
-                "customInstructions".into(),
-                json!(str_or(get("custom_instructions"), "")),
-            );
-        }
-        _ => {
-            event.insert("raw".into(), hook.clone());
-        }
+        _ => {}
     }
 
     Some(Value::Object(event))
@@ -168,22 +147,22 @@ mod tests {
 
     #[test]
     fn truncates_by_codepoint() {
-        let mut v = json!({ "a": "çãé🚀x", "b": ["abc"] });
-        truncate_strings(&mut v, 4);
-        assert_eq!(v, json!({ "a": "çãé🚀…[truncated]", "b": ["abc"] }));
+        assert_eq!(truncate("çãé🚀x", 4), "çãé🚀…");
+        assert_eq!(truncate("abc", 4), "abc");
     }
 
     #[test]
-    fn false_falls_back_like_jq() {
+    fn false_falls_back() {
         assert_eq!(str_or(Some(&json!(false)), "d"), "d");
         assert_eq!(str_or(Some(&json!(true)), "d"), "true");
         assert_eq!(str_or(Some(&json!({"a": 1})), "d"), r#"{"a":1}"#);
     }
 
     #[test]
-    fn rejects_non_object_input() {
-        assert!(build(&json!(5), 0, 10).is_none());
-        assert!(build(&json!("x"), 0, 10).is_none());
-        assert_eq!(build(&Value::Null, 0, 10).unwrap()["type"], "unknown");
+    fn rejects_non_object_and_unknown_input() {
+        assert!(build(&json!(5), 0).is_none());
+        assert!(build(&json!("x"), 0).is_none());
+        assert!(build(&Value::Null, 0).is_none());
+        assert!(build(&json!({ "hook_event_name": "SomethingNew" }), 0).is_none());
     }
 }

@@ -26,24 +26,7 @@ fn main() {
     let hook = example_sibling("vibecraft-hook");
     let env = TestEnv::new();
 
-    // A transcript like a real session's: alternating prompts, replies and tool calls
-    let transcript = env.home.join("transcript.jsonl");
-    let lines: String = (0..400)
-        .map(|i| {
-            let entry = if i % 4 == 0 {
-                json!({ "type": "user", "message": { "content": [{ "type": "text", "text": format!("prompt {i} ").repeat(20) }] } })
-            } else {
-                json!({ "type": "assistant", "message": { "content": [
-                    { "type": "text", "text": format!("reply {i} ").repeat(60) },
-                    { "type": "tool_use", "name": "Read", "input": { "file_path": "/x" } },
-                ] } })
-            };
-            format!("{entry}\n")
-        })
-        .collect();
-    std::fs::write(&transcript, lines).unwrap();
-
-    let base = json!({ "session_id": "bench-session", "cwd": "/home/user/project", "transcript_path": transcript });
+    let base = json!({ "session_id": "bench-session", "cwd": "/home/user/project", "transcript_path": "/home/user/.claude/projects/p/s.jsonl" });
     let case = |extra: serde_json::Value| {
         let mut input = base.clone();
         input

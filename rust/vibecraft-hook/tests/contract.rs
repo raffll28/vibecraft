@@ -1,5 +1,7 @@
 //! Contract tests for the hook binary: Claude Code hook JSON in → vibecraft
 //! event out (appended to the events file, optionally POSTed to the server).
+//! Events carry only what the frontend uses: never prompts, responses, tool
+//! output or file contents.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -41,122 +43,73 @@ fn single_with(input: Value, extra_env: &[(&str, &str)]) -> Value {
     strip_volatile(&result.events[0])
 }
 
-/// Write a transcript (one JSON object per line) into `env` and return its path
-fn write_transcript(env: &TestEnv, entries: &[Value], trailing: &str) -> String {
-    let path = env.home.join("transcript.jsonl");
-    let mut text: String = entries.iter().map(|e| format!("{e}\n")).collect();
-    text.push_str(trailing);
-    std::fs::write(&path, text).unwrap();
-    path.to_string_lossy().into_owned()
-}
-
-fn user(text: &str) -> Value {
-    json!({ "type": "user", "message": { "content": [{ "type": "text", "text": text }] } })
-}
-
-fn assistant(texts: &[&str]) -> Value {
-    let content: Vec<Value> = texts
-        .iter()
-        .map(|t| json!({ "type": "text", "text": t }))
-        .collect();
-    json!({ "type": "assistant", "message": { "content": content } })
-}
-
-fn assistant_tool_use() -> Value {
-    json!({ "type": "assistant", "message": { "content": [{ "type": "tool_use", "name": "Read" }] } })
-}
-
 // ============================================================================
 // Event mapping
 // ============================================================================
 
 #[test]
-fn user_prompt_submit_keeps_the_prompt_verbatim() {
-    let prompt = "olá \"aspas\" \\ barra\nnova linha\t🚀";
-    assert_eq!(
-        single(
-            json!({ "hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/w", "prompt": prompt })
-        ),
-        json!({ "type": "user_prompt_submit", "sessionId": "s1", "cwd": "/w", "prompt": prompt })
-    );
+fn lifecycle_events_carry_only_the_session() {
+    for (hook_name, event_type) in [
+        ("UserPromptSubmit", "user_prompt_submit"),
+        ("Stop", "stop"),
+        ("SubagentStop", "subagent_stop"),
+        ("SessionStart", "session_start"),
+        ("SessionEnd", "session_end"),
+        ("PreCompact", "pre_compact"),
+    ] {
+        assert_eq!(
+            single(json!({
+                "hook_event_name": hook_name, "session_id": "s1", "cwd": "/w",
+                "prompt": "my secret prompt", "transcript_path": "/t.jsonl",
+                "stop_hook_active": true, "source": "resume", "reason": "clear",
+                "trigger": "auto", "custom_instructions": "x",
+            })),
+            json!({ "type": event_type, "sessionId": "s1", "cwd": "/w" }),
+            "{hook_name}"
+        );
+    }
 }
 
 #[test]
-fn session_start_defaults_source_to_startup() {
-    assert_eq!(
-        single(json!({ "hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/w" })),
-        json!({ "type": "session_start", "sessionId": "s1", "cwd": "/w", "source": "startup" })
-    );
-    assert_eq!(
-        single(
-            json!({ "hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/w", "source": "resume" })
-        ),
-        json!({ "type": "session_start", "sessionId": "s1", "cwd": "/w", "source": "resume" })
-    );
-}
-
-#[test]
-fn session_end_defaults_reason_to_other() {
-    assert_eq!(
-        single(json!({ "hook_event_name": "SessionEnd", "session_id": "s1", "cwd": "/w" })),
-        json!({ "type": "session_end", "sessionId": "s1", "cwd": "/w", "reason": "other" })
-    );
-}
-
-#[test]
-fn notification_carries_message_and_type() {
+fn notification_keeps_only_its_type() {
     assert_eq!(
         single(json!({
             "hook_event_name": "Notification", "session_id": "s1", "cwd": "/w",
             "message": "Claude needs your permission", "notification_type": "permission_prompt",
         })),
-        json!({
-            "type": "notification", "sessionId": "s1", "cwd": "/w",
-            "message": "Claude needs your permission", "notificationType": "permission_prompt",
-        })
+        json!({ "type": "notification", "sessionId": "s1", "cwd": "/w", "notificationType": "permission_prompt" })
+    );
+    assert_eq!(
+        single(json!({ "hook_event_name": "Notification", "session_id": "s1", "cwd": "/w" }))["notificationType"],
+        "unknown"
     );
 }
 
 #[test]
-fn notification_defaults() {
-    assert_eq!(
-        single(json!({ "hook_event_name": "Notification", "session_id": "s1", "cwd": "/w" })),
-        json!({ "type": "notification", "sessionId": "s1", "cwd": "/w", "message": "", "notificationType": "unknown" })
+fn unknown_hook_names_are_not_recorded() {
+    let env = TestEnv::new();
+    let result = run(
+        &env,
+        &json!({ "hook_event_name": "SomethingNew", "session_id": "s1" }),
+        &[],
     );
-}
-
-#[test]
-fn pre_compact_carries_trigger_and_instructions() {
-    assert_eq!(
-        single(json!({ "hook_event_name": "PreCompact", "session_id": "s1", "cwd": "/w" })),
-        json!({ "type": "pre_compact", "sessionId": "s1", "cwd": "/w", "trigger": "manual", "customInstructions": "" })
-    );
-}
-
-#[test]
-fn unknown_hook_names_keep_the_raw_input() {
-    let input = json!({ "hook_event_name": "SomethingNew", "session_id": "s1", "cwd": "/w", "extra": [1, 2] });
-    assert_eq!(
-        single(input.clone()),
-        json!({ "type": "unknown", "sessionId": "s1", "cwd": "/w", "raw": input })
-    );
+    assert_eq!(result.code, Some(0));
+    assert!(result.lines.is_empty());
 }
 
 #[test]
 fn missing_session_id_and_cwd_fall_back() {
     assert_eq!(
         single(json!({ "hook_event_name": "SessionEnd" })),
-        json!({ "type": "session_end", "sessionId": "unknown", "cwd": "", "reason": "other" })
+        json!({ "type": "session_end", "sessionId": "unknown", "cwd": "" })
     );
 }
 
 #[test]
 fn non_string_fields_are_stringified() {
     assert_eq!(
-        single(
-            json!({ "hook_event_name": "UserPromptSubmit", "session_id": 42, "cwd": "/w", "prompt": 7 })
-        ),
-        json!({ "type": "user_prompt_submit", "sessionId": "42", "cwd": "/w", "prompt": "7" })
+        single(json!({ "hook_event_name": "SessionEnd", "session_id": 42, "cwd": "/w" })),
+        json!({ "type": "session_end", "sessionId": "42", "cwd": "/w" })
     );
 }
 
@@ -165,57 +118,50 @@ fn non_string_fields_are_stringified() {
 // ============================================================================
 
 #[test]
-fn pre_tool_use_includes_the_assistant_text_since_the_last_user_message() {
-    let env = TestEnv::new();
-    let transcript = write_transcript(
-        &env,
-        &[
-            user("first"),
-            assistant(&["old reply"]),
-            user("second"),
-            assistant(&["Let me look.", "Reading now."]),
-            assistant_tool_use(),
-        ],
-        "",
-    );
-    let result = run(
-        &env,
-        &json!({
-            "hook_event_name": "PreToolUse", "session_id": "s1", "cwd": "/w", "transcript_path": transcript,
-            "tool_name": "Read", "tool_input": { "file_path": "/w/a.ts" }, "tool_use_id": "tu1",
-        }),
-        &[],
-    );
+fn tool_input_keeps_short_fields_and_line_counts_only() {
+    let input = json!({
+        "file_path": "/w/a.ts", "notebook_path": "/w/n.ipynb", "command": "ls -la",
+        "pattern": "fn main", "url": "https://example.com", "query": "rust", "description": "Explore",
+        "old_string": "a\nb", "new_string": "a\nb\nc\nd", "content": "x\ny\nz",
+        "todos": [{ "content": "one" }, { "content": "two" }],
+        "timeout": 5000, "replace_all": true,
+    });
     assert_eq!(
-        strip_volatile(&result.events[0]),
+        single(json!({
+            "hook_event_name": "PreToolUse", "session_id": "s1", "cwd": "/w",
+            "tool_name": "Edit", "tool_input": input, "tool_use_id": "tu1",
+        })),
         json!({
-            "type": "pre_tool_use", "sessionId": "s1", "cwd": "/w",
-            "tool": "Read", "toolInput": { "file_path": "/w/a.ts" }, "toolUseId": "tu1",
-            "assistantText": "Let me look.\nReading now.",
+            "type": "pre_tool_use", "sessionId": "s1", "cwd": "/w", "tool": "Edit", "toolUseId": "tu1",
+            "toolInput": {
+                "file_path": "/w/a.ts", "notebook_path": "/w/n.ipynb", "command": "ls -la",
+                "pattern": "fn main", "url": "https://example.com", "query": "rust", "description": "Explore",
+                "old_lines": 2, "new_lines": 4, "content_lines": 3, "todo_count": 2,
+            },
         })
     );
 }
 
 #[test]
-fn pre_tool_use_tolerates_a_missing_transcript_and_a_partial_last_line() {
+fn empty_contents_have_no_line_count() {
+    let event = single(json!({
+        "hook_event_name": "PreToolUse", "session_id": "s1", "cwd": "/w", "tool_name": "Write",
+        "tool_input": { "file_path": "/w/a", "content": "" },
+    }));
+    assert_eq!(event["toolInput"], json!({ "file_path": "/w/a" }));
+}
+
+#[test]
+fn long_text_fields_are_truncated_to_300_characters() {
+    let command = "ç".repeat(500);
     let event = single(json!({
         "hook_event_name": "PreToolUse", "session_id": "s1", "cwd": "/w", "tool_name": "Bash",
-        "transcript_path": "/nonexistent/transcript.jsonl",
+        "tool_input": { "command": command },
     }));
-    assert_eq!(event["assistantText"], "");
-
-    let env = TestEnv::new();
-    let transcript = write_transcript(
-        &env,
-        &[user("q"), assistant(&["answer"])],
-        r#"{"type":"assistant","mess"#,
+    assert_eq!(
+        event["toolInput"]["command"],
+        format!("{}…", "ç".repeat(300))
     );
-    let result = run(
-        &env,
-        &json!({ "hook_event_name": "PreToolUse", "session_id": "s1", "cwd": "/w", "tool_name": "Bash", "transcript_path": transcript }),
-        &[],
-    );
-    assert_eq!(result.events[0]["assistantText"], "answer");
 }
 
 #[test]
@@ -224,7 +170,7 @@ fn pre_tool_use_defaults() {
         single(json!({ "hook_event_name": "PreToolUse", "session_id": "s1", "cwd": "/w" })),
         json!({
             "type": "pre_tool_use", "sessionId": "s1", "cwd": "/w",
-            "tool": "unknown", "toolInput": {}, "toolUseId": "", "assistantText": "",
+            "tool": "unknown", "toolInput": {}, "toolUseId": "",
         })
     );
 }
@@ -240,77 +186,15 @@ fn post_tool_use_reports_success_unless_tool_response_success_is_false() {
     assert_eq!(with_response(json!({ "stdout": "ok" })), true);
     assert_eq!(with_response(json!({ "success": false })), false);
     assert_eq!(with_response(json!("plain string")), true);
+    // The tool's output is never recorded
+    let mut input = base();
+    input["tool_response"] = json!({ "stdout": "secret output" });
     assert_eq!(
-        single(base()),
+        single(input),
         json!({
             "type": "post_tool_use", "sessionId": "s1", "cwd": "/w",
-            "tool": "Bash", "toolInput": {}, "toolResponse": {}, "toolUseId": "tu1", "success": true,
+            "tool": "Bash", "toolInput": {}, "toolUseId": "tu1", "success": true,
         })
-    );
-}
-
-#[test]
-fn post_tool_use_truncates_long_strings_anywhere_in_tool_response() {
-    let long = "x".repeat(5000);
-    let event = single(json!({
-        "hook_event_name": "PostToolUse", "session_id": "s1", "cwd": "/w", "tool_name": "Read",
-        "tool_input": { "file_path": long },
-        "tool_response": { "stdout": long, "nested": [{ "deep": long }], "short": "kept", "n": 3 },
-    }));
-    let truncated = format!("{}…[truncated]", "x".repeat(4096));
-    assert_eq!(
-        event["toolResponse"],
-        json!({ "stdout": truncated, "nested": [{ "deep": truncated }], "short": "kept", "n": 3 })
-    );
-    // tool_input is passed through untouched
-    assert_eq!(event["toolInput"], json!({ "file_path": long }));
-}
-
-#[test]
-fn max_response_chars_controls_truncation() {
-    let event = single_with(
-        json!({ "hook_event_name": "PostToolUse", "session_id": "s1", "cwd": "/w", "tool_response": { "stdout": "abcdef" } }),
-        &[("VIBECRAFT_MAX_RESPONSE_CHARS", "3")],
-    );
-    assert_eq!(
-        event["toolResponse"],
-        json!({ "stdout": "abc…[truncated]" })
-    );
-}
-
-// ============================================================================
-// Stop events
-// ============================================================================
-
-#[test]
-fn stop_captures_the_latest_assistant_message_that_has_text() {
-    let env = TestEnv::new();
-    let transcript = write_transcript(
-        &env,
-        &[
-            user("q"),
-            assistant(&["first part"]),
-            assistant(&["Final", "answer"]),
-            assistant_tool_use(),
-        ],
-        "",
-    );
-    let result = run(
-        &env,
-        &json!({ "hook_event_name": "Stop", "session_id": "s1", "cwd": "/w", "transcript_path": transcript, "stop_hook_active": true }),
-        &[],
-    );
-    assert_eq!(
-        strip_volatile(&result.events[0]),
-        json!({ "type": "stop", "sessionId": "s1", "cwd": "/w", "stopHookActive": true, "response": "Final\nanswer" })
-    );
-}
-
-#[test]
-fn subagent_stop_uses_the_same_shape() {
-    assert_eq!(
-        single(json!({ "hook_event_name": "SubagentStop", "session_id": "s1", "cwd": "/w" })),
-        json!({ "type": "subagent_stop", "sessionId": "s1", "cwd": "/w", "stopHookActive": false, "response": "" })
     );
 }
 
@@ -344,7 +228,7 @@ fn each_event_is_one_compact_json_line_appended() {
     );
     let result = run(
         &env,
-        &json!({ "hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/w", "prompt": "a\nb" }),
+        &json!({ "hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/w" }),
         &[],
     );
     assert_eq!(result.lines.len(), 2);
@@ -386,7 +270,7 @@ fn creates_the_events_directory_if_missing() {
 // ============================================================================
 
 #[test]
-fn posts_the_same_event_to_the_server_including_bodies_over_128_kib() {
+fn posts_the_same_event_to_the_server() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!(
         "http://127.0.0.1:{}/event",
@@ -414,10 +298,9 @@ fn posts_the_same_event_to_the_server_including_bodies_over_128_kib() {
     });
 
     let env = TestEnv::new();
-    let big = "y".repeat(200 * 1024);
     let result = run(
         &env,
-        &json!({ "hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/w", "prompt": big }),
+        &json!({ "hook_event_name": "PreToolUse", "session_id": "s1", "cwd": "/w", "tool_name": "Read", "tool_input": { "file_path": "/w/a" } }),
         &[
             ("VIBECRAFT_ENABLE_WS_NOTIFY", "true"),
             ("VIBECRAFT_WS_NOTIFY", &url),

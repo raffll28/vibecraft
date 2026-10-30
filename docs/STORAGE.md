@@ -13,10 +13,9 @@ Where Vibecraft keeps data.
 newest `VIBECRAFT_MAX_EVENTS` (1000) events and, once the file passes 10 MB,
 rewrites it keeping only those.
 
-## Browser (localStorage, per browser)
+Each event holds the session, its directory, the tool, a short summary of the
+tool input (file name, first 300 characters of a command, line counts) and
+whether it succeeded. Prompts, replies, tool output and file contents are
+not recorded.
 
-| Key | Data |
-|---|---|
-| `vibecraft-grid-size` | World grid size (hex rings) |
-| `vibecraft-agent-port` | Server port override |
-| `vibecraft-streaming-mode` | Hide the username in the HUD |
+The browser stores nothing.

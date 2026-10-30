@@ -315,6 +315,12 @@ para criar e conduzir sessões pelo navegador saiu:
   `deno bundle` (esbuild por baixo) gera o `dist/`, `deno check` checa os
   tipos e `deno test` roda o teste do semáforo. O `three` vem do registro npm
   para o cache do Deno, fixado no `deno.lock`. O bundle continua com 627 KB.
+- **Cortes finos:** os eventos levam só o que a tela usa (sem prompts,
+  respostas, saída das ferramentas nem conteúdo de arquivos; o hook não lê
+  mais o transcript e o `Stop` caiu de ~1,65 para ~0,75 ms); o WebSocket só
+  aceita origens localhost (antes, o site `vibecraft.sh` do projeto original
+  também); sem CORS, `/config`, porta configurável, configurações, painel de
+  animações, destaque e pulso no chão.
 - **Analytics:** removido o script do Amplitude, que mandava cliques e
   formulários para a conta do projeto original.
 

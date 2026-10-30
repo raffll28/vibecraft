@@ -53,12 +53,6 @@ export interface SessionContext {
   subagents: any
   /** Zone data */
   zone: any
-  /** Stats */
-  stats: {
-    toolsUsed: number
-    filesTouched: Set<string>
-    activeSubagents: number
-  }
 }
 
 /** Event type to event data mapping */

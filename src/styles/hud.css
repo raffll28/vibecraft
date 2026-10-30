@@ -28,22 +28,6 @@
   gap: 10px;
 }
 
-.hud-user {
-  color: #a78bfa;
-  font-weight: 500;
-}
-
-.hud-sep {
-  color: rgba(255, 255, 255, 0.2);
-  font-weight: 300;
-}
-
-.hud-fps {
-  font-family: monospace;
-  color: #888;
-  min-width: 50px;
-}
-
 #status-dot {
   width: 8px;
   height: 8px;
@@ -63,26 +47,6 @@
   animation: pulse 1s infinite;
 }
 
-/* HUD button */
-.hud-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: background 0.15s, transform 0.1s;
-  pointer-events: auto;
-}
-
-.hud-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.hud-btn:active {
-  transform: scale(0.9);
-}
-
 /* Keybind Helper */
 #keybind-helper {
   position: absolute;
@@ -95,16 +59,6 @@
   padding: 10px 14px;
   font-size: 11px;
   pointer-events: none;
-}
-
-#camera-mode-label {
-  color: #a78bfa;
-  font-weight: 600;
-}
-
-#camera-mode-desc {
-  color: rgba(255, 255, 255, 0.5);
-  font-family: monospace;
 }
 
 .keybind-list {
@@ -127,108 +81,4 @@
   font-size: 10px;
   margin-right: 4px;
   color: #fff;
-}
-
-/* Dev Panel (animation testing) */
-#dev-panel {
-  position: absolute;
-  top: 60px;
-  right: 12px;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(167, 139, 250, 0.3);
-  border-radius: 8px;
-  padding: 10px;
-  font-size: 11px;
-  max-height: 300px;
-  overflow-y: auto;
-  z-index: 100;
-}
-
-#dev-panel.hidden {
-  display: none;
-}
-
-.dev-header {
-  color: #a78bfa;
-  font-weight: 600;
-  font-size: 12px;
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-#dev-animations {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.dev-anim-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  padding: 6px 10px;
-  color: #e5e5e5;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.15s;
-  text-align: left;
-}
-
-.dev-anim-btn:hover {
-  background: rgba(167, 139, 250, 0.2);
-  border-color: rgba(167, 139, 250, 0.4);
-  color: #fff;
-}
-
-.dev-anim-btn:active {
-  transform: scale(0.98);
-}
-
-.dev-anim-btn.playing {
-  background: rgba(167, 139, 250, 0.3);
-  border-color: #a78bfa;
-  color: #fff;
-}
-
-.dev-section-header {
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-top: 10px;
-  margin-bottom: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.dev-section-header:first-child {
-  margin-top: 0;
-}
-
-.dev-anim-btn-working {
-  background: rgba(251, 191, 36, 0.1);
-  border-color: rgba(251, 191, 36, 0.3);
-}
-
-.dev-anim-btn-working:hover {
-  background: rgba(251, 191, 36, 0.2);
-  border-color: rgba(251, 191, 36, 0.5);
-}
-
-.dev-anim-btn-working.playing {
-  background: rgba(251, 191, 36, 0.3);
-  border-color: #fbbf24;
-}
-
-.dev-anim-btn-stop {
-  background: rgba(248, 113, 113, 0.1);
-  border-color: rgba(248, 113, 113, 0.3);
-  margin-top: 8px;
-}
-
-.dev-anim-btn-stop:hover {
-  background: rgba(248, 113, 113, 0.2);
-  border-color: rgba(248, 113, 113, 0.5);
 }

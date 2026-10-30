@@ -101,13 +101,6 @@ export class SubagentManager {
   }
 
   /**
-   * Get count of active subagents
-   */
-  get count(): number {
-    return this.subagents.size
-  }
-
-  /**
    * Clean up all subagents
    */
   dispose(): void {

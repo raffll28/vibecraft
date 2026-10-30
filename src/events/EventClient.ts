@@ -24,7 +24,6 @@ export class EventClient {
   private connectionHandlers: Set<ConnectionHandler> = new Set()
   private reconnectAttempts = 0
   private reconnectTimeout: number | null = null
-  private _isConnected = false
 
   constructor(options: EventClientOptions) {
     this.options = {
@@ -33,10 +32,6 @@ export class EventClient {
       debug: false,
       ...options,
     }
-  }
-
-  get isConnected(): boolean {
-    return this._isConnected
   }
 
   private log(...args: unknown[]) {
@@ -58,14 +53,12 @@ export class EventClient {
 
       this.ws.onopen = () => {
         this.log('Connected')
-        this._isConnected = true
         this.reconnectAttempts = 0
         this.notifyConnectionHandlers(true)
       }
 
       this.ws.onclose = () => {
         this.log('Disconnected')
-        this._isConnected = false
         this.notifyConnectionHandlers(false)
         this.scheduleReconnect()
       }
@@ -99,7 +92,6 @@ export class EventClient {
       this.ws = null
     }
 
-    this._isConnected = false
   }
 
   private scheduleReconnect(): void {
