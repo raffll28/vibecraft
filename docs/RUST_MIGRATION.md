@@ -295,8 +295,9 @@ para criar e conduzir sessões pelo navegador saiu:
   semáforo: verde livre, amarelo ocupado, vermelho precisa de você
   (`src/events/zoneStatus.ts`). `main.ts` foi de 2897 para 1025 linhas.
 - **Servidor Rust:** sem sessões gerenciadas, tmux, git status, projetos,
-  `/prompt`, `/stats` e `/info`. Ficaram eventos, WebSocket, rótulos do
-  chão, `/config` e `/health`. Os clientes só recebem. Binário: 683 → 573 KiB.
+  `/prompt`, `/stats` e `/info`. Ficaram eventos, WebSocket, `/config` e
+  `/health`. Depois saíram também o modo desenho e os rótulos do chão
+  (`/tiles`, `tiles.json`). Os clientes só recebem. Binário: 683 → 573 KiB.
 - **Node só como ferramenta de desenvolvimento:** removidos o servidor Node,
   o CLI `bin/cli.js` (o `setup`/`uninstall` agora é
   `vibecraft-server setup`, que preserva a ordem das chaves do

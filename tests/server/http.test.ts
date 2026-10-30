@@ -1,5 +1,5 @@
 /**
- * Server contract: HTTP endpoints (health, config, tiles, CORS, static files).
+ * Server contract: HTTP endpoints (health, config, CORS, static files).
  *
  * Run against another implementation with VIBECRAFT_SERVER_CMD=<command>.
  */
@@ -54,7 +54,7 @@ describe('server: CORS', () => {
   it('echoes allowed origins', async () => {
     const res = await fetch(`${server.url}/health`, { headers: { Origin: ALLOWED_ORIGIN } })
     assert.equal(res.headers.get('access-control-allow-origin'), ALLOWED_ORIGIN)
-    assert.equal(res.headers.get('access-control-allow-methods'), 'GET, POST, PATCH, DELETE, OPTIONS')
+    assert.equal(res.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS')
     assert.equal(res.headers.get('access-control-allow-headers'), 'Content-Type')
   })
 
@@ -70,54 +70,6 @@ describe('server: CORS', () => {
     assert.equal(bad.status, 403)
     const none = await fetch(`${server.url}/event`, { method: 'OPTIONS' })
     assert.equal(none.status, 403)
-  })
-})
-
-describe('server: text tiles', () => {
-  let env: TestEnv
-  let server: TestServer | null
-  beforeEach(async () => { env = createTestEnv(); server = await startServer(env) })
-  afterEach(async () => { await server?.stop(); env.cleanup() })
-
-  it('create, update, delete, with broadcasts', async () => {
-    const client = await connectClient(server!)
-    await client.next('history')
-
-    const created = await sendJson(server!, 'POST', '/tiles', { text: 'Olá', position: { q: 1, r: -2 }, color: '#ff0000' })
-    assert.equal(created.status, 201)
-    const tile = created.body.tile
-    assert.match(tile.id, /^[0-9a-f-]{36}$/)
-    assert.deepEqual({ ...tile, id: undefined, createdAt: undefined }, {
-      id: undefined, createdAt: undefined, text: 'Olá', position: { q: 1, r: -2 }, color: '#ff0000',
-    })
-    assert.deepEqual((await client.next('text_tiles')).payload, [tile])
-
-    const updated = await sendJson(server!, 'PUT', `/tiles/${tile.id}`, { text: 'Novo' })
-    assert.deepEqual(updated, { status: 200, body: { ok: true, tile: { ...tile, text: 'Novo' } } })
-    assert.deepEqual((await client.next('text_tiles')).payload, [{ ...tile, text: 'Novo' }])
-    assert.deepEqual((await getJson(server!, '/tiles')).body, { ok: true, tiles: [{ ...tile, text: 'Novo' }] })
-
-    assert.deepEqual(await sendJson(server!, 'DELETE', `/tiles/${tile.id}`), { status: 200, body: { ok: true } })
-    assert.deepEqual((await client.next('text_tiles')).payload, [])
-    client.close()
-  })
-
-  it('persists tiles across restarts', async () => {
-    const { body } = await sendJson(server!, 'POST', '/tiles', { text: 'keep', position: { q: 0, r: 0 } })
-    await server!.stop()
-    server = await startServer(env)
-    assert.deepEqual((await getJson(server, '/tiles')).body.tiles, [body.tile])
-  })
-
-  it('validates input and unknown ids', async () => {
-    assert.deepEqual(await sendJson(server!, 'POST', '/tiles', { text: 'x' }), {
-      status: 400, body: { ok: false, error: 'Missing text or position' },
-    })
-    assert.deepEqual(await sendJson(server!, 'POST', '/tiles', '{x'), { status: 400, body: { ok: false, error: 'Invalid JSON' } })
-    assert.deepEqual(await sendJson(server!, 'PUT', '/tiles/nope', { text: 'x' }), {
-      status: 404, body: { ok: false, error: 'Tile not found' },
-    })
-    assert.deepEqual(await sendJson(server!, 'DELETE', '/tiles/nope'), { status: 404, body: { ok: false, error: 'Tile not found' } })
   })
 })
 

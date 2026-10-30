@@ -189,14 +189,13 @@ describe('server: WebSocket', () => {
     }
   })
 
-  it('sends connected, text_tiles, then history on connect', async () => {
+  it('sends connected, then history on connect', async () => {
     seedEventsFile([makeEvent({ sessionId: 'last-session' })])
     server = await startServer(env)
     const client = await connectClient(server)
     await client.next('history')
-    assert.deepEqual(client.messages.map((m) => m.type), ['connected', 'text_tiles', 'history'])
+    assert.deepEqual(client.messages.map((m) => m.type), ['connected', 'history'])
     assert.deepEqual(client.messages[0].payload, { sessionId: 'last-session' })
-    assert.deepEqual(client.messages[1].payload, [])
     client.close()
   })
 

@@ -250,7 +250,7 @@ fn websocket(
     });
 
     // Register and queue the greeting under one lock, so no broadcast can
-    // slip in before it: connected, text_tiles, then history
+    // slip in before it: connected, then history
     let client_id = {
         let mut state = lock(shared);
         let id = state.next_client_id;
@@ -259,7 +259,6 @@ fn websocket(
         let history = state.events.initial_history(cutoff, 50);
         let greeting = [
             json!({ "type": "connected", "payload": { "sessionId": state.events.last_session_id() } }),
-            state.tiles_message(),
             json!({ "type": "history", "payload": history }),
         ];
         for message in greeting {

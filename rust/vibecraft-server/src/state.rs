@@ -18,7 +18,6 @@ pub struct Config {
     pub port: u16,
     pub host: String,
     pub events_file: PathBuf,
-    pub tiles_file: PathBuf,
     pub max_events: usize,
     pub dist_dir: PathBuf,
 }
@@ -38,7 +37,6 @@ impl Config {
                 .unwrap_or(4003),
             host: std::env::var("VIBECRAFT_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             events_file: env_path("VIBECRAFT_EVENTS_FILE", "~/.vibecraft/data/events.jsonl"),
-            tiles_file: env_path("VIBECRAFT_TILES_FILE", "~/.vibecraft/data/tiles.json"),
             max_events: std::env::var("VIBECRAFT_MAX_EVENTS")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -91,8 +89,6 @@ impl Client {
 
 pub struct State {
     pub events: EventStore,
-    /// Text tiles in insertion order
-    pub tiles: Vec<Value>,
     pub clients: HashMap<u64, Client>,
     pub next_client_id: u64,
     pub events_file_offset: u64,
@@ -110,7 +106,6 @@ impl State {
     pub fn new(config: &Config) -> Self {
         Self {
             events: EventStore::new(config.max_events),
-            tiles: load_tiles(&config.tiles_file),
             clients: HashMap::new(),
             next_client_id: 1,
             events_file_offset: 0,
@@ -133,10 +128,6 @@ impl State {
         self.broadcast(&message);
         true
     }
-
-    pub fn tiles_message(&self) -> Value {
-        json!({ "type": "text_tiles", "payload": self.tiles })
-    }
 }
 
 /// Write pretty JSON (2-space indent)
@@ -145,11 +136,4 @@ pub fn save_json(path: &Path, value: &Value) {
     if let Err(e) = fs::write(path, text) {
         eprintln!("Failed to save {}: {e}", path.display());
     }
-}
-
-fn load_tiles(path: &Path) -> Vec<Value> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<Vec<Value>>(&text).ok())
-        .unwrap_or_default()
 }
