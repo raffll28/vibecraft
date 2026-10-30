@@ -1,6 +1,6 @@
-//! HTTP routes: events from the hook, health, and the built frontend. URLs
-//! match exactly, query strings included. No CORS: the only browser client
-//! is the page this server serves.
+//! HTTP routes: events from the hook, health, shutdown (the page's power
+//! button), and the built frontend. URLs match exactly, query strings
+//! included. No CORS: the only browser client is the page this server serves.
 
 use std::fs;
 use std::path::Path;
@@ -45,6 +45,8 @@ pub fn handle(req: &Request, shared: &Shared, config: &Config) -> Response {
     }
     match (req.method.as_str(), req.url.as_str()) {
         ("POST", "/event") => post_event(req, shared),
+        // The connection loop exits after sending this
+        ("POST", "/shutdown") => Response::json(200, &json!({ "ok": true })),
         ("GET", "/health") => {
             let state = lock(shared);
             Response::json(

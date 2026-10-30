@@ -304,6 +304,14 @@ impl TestServer {
         self.child.id()
     }
 
+    /// Wait for the server to exit on its own; returns its exit code
+    pub fn wait_exit(&mut self) -> Option<i32> {
+        let child = &mut self.child;
+        wait_for(Duration::from_secs(3), "server exit", || {
+            child.try_wait().ok().flatten().map(|status| status.code())
+        })
+    }
+
     /// Server stdout + stderr, for debugging failures
     pub fn output(&self) -> String {
         fs::read_to_string(&self.log).unwrap_or_default()

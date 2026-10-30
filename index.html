@@ -21,6 +21,7 @@
           <div class="scene-badge unified-hud">
             <div id="status-dot"></div>
             <span id="status-text"></span>
+            <button id="power-button" title="Turn off the vibecraft server" aria-label="Turn off the vibecraft server">⏻</button>
           </div>
         </div>
 
@@ -38,13 +39,13 @@
     <!-- Not Connected Overlay -->
     <div id="not-connected-overlay">
       <div class="not-connected-content">
-        <h2>Vibecraft!</h2>
+        <h2 id="not-connected-title">Vibecraft!</h2>
         <p class="not-connected-description">
           A 3D monitor for the Claude Code sessions running in your terminals.
         </p>
         <div class="not-connected-setup">
-          <p class="not-connected-setup-label">The vibecraft server isn't running. Start it with:</p>
-          <div class="not-connected-code">rust/target/release/vibecraft-server</div>
+          <p class="not-connected-setup-label">The vibecraft server isn't running. Open the Vibecraft launcher, or run:</p>
+          <div class="not-connected-code">./vibecraft.sh</div>
         </div>
         <div class="not-connected-actions">
           <button class="not-connected-btn not-connected-btn-retry" id="retry-connection">↻ Reconnect</button>

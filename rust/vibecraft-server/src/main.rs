@@ -35,6 +35,8 @@ const EVENTS_FILE_COMPACT_BYTES: usize = 10 * 1024 * 1024;
 const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(5);
 /// New clients get the history of sessions with events newer than this
 const SESSION_HISTORY_MAX_AGE_MS: u64 = 30 * 60 * 1000;
+/// Time the WebSocket writers get to send the close frame before exiting
+const SHUTDOWN_GRACE: Duration = Duration::from_millis(200);
 
 fn main() {
     match std::env::args().nth(1).as_deref() {
@@ -211,12 +213,33 @@ fn handle_connection(stream: TcpStream, shared: &Shared, config: &Config) {
         }
 
         let res = routes::handle(&req, shared, config);
-        let keep_alive = req.keep_alive && !matches!(req.body, http::Body::TooLarge);
+        let stopping = res.status == 200 && req.method == "POST" && req.url == "/shutdown";
+        let keep_alive =
+            req.keep_alive && !stopping && !matches!(req.body, http::Body::TooLarge);
         if res.write_to(&mut writer, keep_alive).is_err() || !keep_alive {
             let _ = writer.shutdown(Shutdown::Both);
+            if stopping {
+                stop(shared);
+            }
             return;
         }
     }
+}
+
+/// The power button: tell the open pages and exit. The hook keeps appending
+/// to the events file, so nothing is lost while the server is off.
+fn stop(shared: &Shared) -> ! {
+    {
+        let mut state = lock(shared);
+        let frame: Frame = Arc::new(ws::close_frame(ws::CLOSE_SERVER_STOPPED, "Server stopped"));
+        for client in state.clients.values() {
+            client.send(frame.clone());
+        }
+        state.clients.clear();
+    }
+    thread::sleep(SHUTDOWN_GRACE);
+    println!("[vibecraft] Stopped from the page");
+    std::process::exit(0)
 }
 
 fn websocket(
@@ -248,7 +271,9 @@ fn websocket(
     let mut socket = writer;
     let writer_thread = thread::spawn(move || {
         for frame in rx {
-            if socket.write_all(&frame).is_err() {
+            // Nothing may follow a close frame: a browser that already got
+            // ours fails the connection (1006) if its close is answered
+            if socket.write_all(&frame).is_err() || ws::is_close_frame(&frame) {
                 break;
             }
         }

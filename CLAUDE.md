@@ -44,6 +44,7 @@ needs just the two Rust binaries and `dist/`. There is no Node.js or npm.
 | `shared/` | Types and defaults used by the frontend |
 | `tests/unit/` | Frontend unit tests (`deno test`) |
 | `deno.json` | Tasks, the `three` import (npm:, cached by Deno), compiler options |
+| `vibecraft.sh` | Launcher: starts the server in the background once, opens the page, adds a `.desktop` entry; `stop` turns it off |
 
 ## Rust Side
 
@@ -55,10 +56,14 @@ framing) and inotify (direct libc FFI) are hand-written in
 
 **Server** (`vibecraft-server/src`):
 - `main.rs`: startup (loads events, compacts the file past 10 MB), the events
-  file watcher, the connection loop and the WebSocket client lifecycle.
-- `routes.rs`: `POST /event`, `GET /health`, static files from `dist/`. No
-  CORS: the only browser client is the page this server serves, and the
-  WebSocket only accepts localhost origins (`validation::is_origin_allowed`).
+  file watcher, the connection loop (refuses a `Host` other than
+  localhost/127.0.0.1: DNS rebinding), the WebSocket client lifecycle, and
+  `stop()` after `POST /shutdown` (close code 4000 to every page, then exit).
+- `routes.rs`: `POST /event`, `GET /health`, `POST /shutdown` (the page's
+  power button), static files from `dist/`. Requests carrying a non-localhost
+  `Origin` get 403 (CSRF; the hook sends no Origin). No CORS: the only browser
+  client is the page this server serves, and the WebSocket only accepts
+  localhost origins (`validation::is_origin_allowed`).
 - `state.rs`: config from env vars, shared state behind a mutex, broadcast.
   Each WebSocket client has a writer thread fed by a bounded queue
   (`CLIENT_QUEUE_FRAMES`); a client that falls behind is disconnected.
@@ -160,6 +165,7 @@ and the map.
 | Command | |
 |---|---|
 | `deno task build` | Frontend (`dist/`) and Rust release binaries |
+| `./vibecraft.sh` / `./vibecraft.sh stop` | Start the server in the background and open the page / stop it (log: `~/.vibecraft/server.log`) |
 | `deno task check` | Type check the frontend and its tests |
 | `deno task test` | Frontend build (type check), `cargo test`, then the frontend unit tests |
 | `deno task test:rust` / `test:unit` | One side |

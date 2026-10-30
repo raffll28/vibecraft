@@ -7,7 +7,11 @@ import type { ClaudeEvent, ServerMessage } from '../../shared/types.ts'
 
 export type EventHandler = (event: ClaudeEvent) => void
 export type HistoryHandler = (events: ClaudeEvent[]) => void
-export type ConnectionHandler = (connected: boolean) => void
+/** `stopped`: the server was turned off from a page (power button) */
+export type ConnectionHandler = (connected: boolean, stopped: boolean) => void
+
+/** Close code the server sends when it's stopped from a page */
+const CLOSE_SERVER_STOPPED = 4000
 
 export interface EventClientOptions {
   url: string
@@ -54,12 +58,13 @@ export class EventClient {
       this.ws.onopen = () => {
         this.log('Connected')
         this.reconnectAttempts = 0
-        this.notifyConnectionHandlers(true)
+        this.notifyConnectionHandlers(true, false)
       }
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
         this.log('Disconnected')
-        this.notifyConnectionHandlers(false)
+        this.notifyConnectionHandlers(false, event.code === CLOSE_SERVER_STOPPED)
+        // Keep trying: the page comes back by itself when the server is started again
         this.scheduleReconnect()
       }
 
@@ -169,10 +174,10 @@ export class EventClient {
     }
   }
 
-  private notifyConnectionHandlers(connected: boolean): void {
+  private notifyConnectionHandlers(connected: boolean, stopped: boolean): void {
     for (const handler of this.connectionHandlers) {
       try {
-        handler(connected)
+        handler(connected, stopped)
       } catch (e) {
         console.error('Connection handler error:', e)
       }

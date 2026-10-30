@@ -147,6 +147,14 @@ pub fn pong_frame(payload: &[u8]) -> Vec<u8> {
     frame(OP_PONG, payload)
 }
 
+/// Close code (application range) sent when the page's power button stops
+/// the server, so open pages say so instead of just "disconnected"
+pub const CLOSE_SERVER_STOPPED: u16 = 4000;
+
+pub fn is_close_frame(frame: &[u8]) -> bool {
+    frame.first().is_some_and(|b| b & 0x0F == OP_CLOSE)
+}
+
 pub fn close_frame(code: u16, reason: &str) -> Vec<u8> {
     let mut payload = code.to_be_bytes().to_vec();
     payload.extend_from_slice(reason.as_bytes());
@@ -177,6 +185,14 @@ mod tests {
         let msg = read_message(&mut input.as_slice(), |p| pongs.push(p)).unwrap();
         assert!(matches!(msg, Message::Data));
         assert_eq!(pongs, vec![b"p".to_vec()]);
+    }
+
+    #[test]
+    fn tells_close_frames_apart() {
+        assert!(is_close_frame(&close_frame(CLOSE_SERVER_STOPPED, "Server stopped")));
+        assert!(!is_close_frame(&text_frame("{}")));
+        assert!(!is_close_frame(&pong_frame(b"")));
+        assert!(!is_close_frame(&[]));
     }
 
     #[test]

@@ -1,4 +1,5 @@
-//! Server contract: HTTP endpoints (health, browser checks, static files).
+//! Server contract: HTTP endpoints (health, browser checks, shutdown, static
+//! files).
 
 use std::fs;
 use std::path::PathBuf;
@@ -99,6 +100,8 @@ fn refuses_requests_from_other_sites() {
             &[("Origin", origin), ("Content-Type", "text/plain")],
         );
         assert_eq!(res.status, 403, "origin {origin}");
+        let res = server.request("POST", "/shutdown", None, &[("Origin", origin)]);
+        assert_eq!(res.status, 403, "shutdown from origin {origin}");
     }
     assert_eq!(server.health()["events"], 0);
 
@@ -107,6 +110,30 @@ fn refuses_requests_from_other_sites() {
     assert_eq!(res.status, 200);
     let res = server.request("GET", "/health", None, &[("Origin", ALLOWED_ORIGIN)]);
     assert_eq!(res.status, 200);
+}
+
+#[test]
+fn shutdown_closes_the_pages_and_exits() {
+    let env = TestEnv::new();
+    let mut server = TestServer::start(SERVER, &env, &[]);
+    let mut client = server.connect();
+    client.next("history");
+
+    let origin = format!("http://localhost:{}", server.port);
+    let res = server.request("POST", "/shutdown", None, &[("Origin", &origin)]);
+    assert_eq!(res.status, 200);
+    assert_eq!(res.json(), serde_json::json!({ "ok": true }));
+    assert_eq!(client.wait_close(), Some(4000));
+    assert_eq!(server.wait_exit(), Some(0));
+}
+
+#[test]
+fn shutdown_needs_a_post() {
+    let env = TestEnv::new();
+    let server = static_server(&env);
+    let res = server.request("GET", "/shutdown", None, &[]);
+    assert_eq!(res.text(), INDEX_HTML);
+    assert_eq!(server.health()["ok"], true);
 }
 
 // ============================================================================

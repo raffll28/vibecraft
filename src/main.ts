@@ -320,8 +320,31 @@ function updateStatus(connected: boolean, text?: string) {
 }
 
 // ============================================================================
+// Power Button
+// ============================================================================
+
+function setupPowerButton(): void {
+  document.getElementById('power-button')?.addEventListener('click', async () => {
+    if (!confirm('Turn off the vibecraft server? Start it again with the Vibecraft launcher.')) return
+    try {
+      // The server answers, closes every page's WebSocket and exits
+      await fetch('/shutdown', { method: 'POST' })
+    } catch {
+      // Already gone
+    }
+  })
+}
+
+// ============================================================================
 // Connection Overlay
 // ============================================================================
+
+/** Show the overlay: never connected, or turned off with the power button */
+function showNotConnectedOverlay(stopped: boolean): void {
+  const title = document.getElementById('not-connected-title')
+  if (title) title.textContent = stopped ? 'Vibecraft is off' : 'Vibecraft!'
+  document.getElementById('not-connected-overlay')?.classList.add('visible')
+}
 
 function setupNotConnectedOverlay(): void {
   const overlay = document.getElementById('not-connected-overlay')
@@ -362,18 +385,20 @@ function init() {
   // Track if we've ever connected
   let hasConnected = false
 
-  state.client.onConnection((connected) => {
-    updateStatus(connected, connected ? 'Connected' : 'Disconnected')
+  state.client.onConnection((connected, stopped) => {
+    updateStatus(connected, connected ? 'Connected' : stopped ? 'Server off' : 'Disconnected')
     if (connected) {
       hasConnected = true
       document.getElementById('not-connected-overlay')?.classList.remove('visible')
+    } else if (stopped) {
+      showNotConnectedOverlay(true)
     }
   })
 
   // Show not-connected overlay after timeout if never connected
   setTimeout(() => {
     if (!hasConnected) {
-      document.getElementById('not-connected-overlay')?.classList.add('visible')
+      showNotConnectedOverlay(false)
     }
   }, 3000)  // 3 seconds to connect before showing overlay
 
@@ -397,6 +422,7 @@ function init() {
   setupMouseHandling()
 
   setupNotConnectedOverlay()
+  setupPowerButton()
 
   updateStatus(false, 'Connecting...')
   console.log('Vibecraft initialized')
