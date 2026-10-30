@@ -435,8 +435,10 @@ pub fn http_request(
 ) -> HttpResponse {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
     stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
-    let mut head =
-        format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n");
+    let mut head = format!("{method} {path} HTTP/1.1\r\nConnection: close\r\n");
+    if !headers.iter().any(|(key, _)| key.eq_ignore_ascii_case("host")) {
+        head.push_str(&format!("Host: 127.0.0.1:{port}\r\n"));
+    }
     for (key, value) in headers {
         head.push_str(&format!("{key}: {value}\r\n"));
     }

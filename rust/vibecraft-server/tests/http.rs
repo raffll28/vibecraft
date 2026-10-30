@@ -1,9 +1,9 @@
-//! Server contract: HTTP endpoints (health, static files).
+//! Server contract: HTTP endpoints (health, browser checks, static files).
 
 use std::fs;
 use std::path::PathBuf;
 
-use vibecraft_testkit::{ALLOWED_ORIGIN, TestEnv, TestServer};
+use vibecraft_testkit::{ALLOWED_ORIGIN, TestEnv, TestServer, make_event};
 
 const SERVER: &str = env!("CARGO_BIN_EXE_vibecraft-server");
 
@@ -46,6 +46,67 @@ fn no_cors_and_no_config_endpoint() {
             .header("content-type"),
         Some("application/json")
     );
+}
+
+// ============================================================================
+// Browser checks: other sites can send requests to localhost too
+// ============================================================================
+
+#[test]
+fn refuses_hosts_other_than_localhost() {
+    // DNS rebinding: a site's own domain pointed at 127.0.0.1
+    let env = TestEnv::new();
+    let server = TestServer::start(SERVER, &env, &[]);
+    let event = serde_json::to_vec(&make_event(serde_json::json!({}))).unwrap();
+    for host in ["evil.example", "evil.example:4003", "192.168.0.17:4003"] {
+        let get = server.request("GET", "/health", None, &[("Host", host)]);
+        assert_eq!(get.status, 403, "GET with Host {host}");
+        let post = server.request("POST", "/event", Some(&event), &[("Host", host)]);
+        assert_eq!(post.status, 403, "POST with Host {host}");
+        let upgrade = server.request(
+            "GET",
+            "/",
+            None,
+            &[
+                ("Host", host),
+                ("Origin", ALLOWED_ORIGIN),
+                ("Upgrade", "websocket"),
+                ("Connection", "Upgrade"),
+                ("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="),
+                ("Sec-WebSocket-Version", "13"),
+            ],
+        );
+        assert_eq!(upgrade.status, 403, "WebSocket with Host {host}");
+    }
+    for host in ["localhost", &format!("localhost:{}", server.port)] {
+        let res = server.request("GET", "/health", None, &[("Host", host)]);
+        assert_eq!(res.status, 200, "Host {host}");
+    }
+    assert_eq!(server.health()["events"], 0);
+}
+
+#[test]
+fn refuses_requests_from_other_sites() {
+    // CSRF: a page elsewhere posting fake events (text/plain needs no preflight)
+    let env = TestEnv::new();
+    let server = TestServer::start(SERVER, &env, &[]);
+    let event = serde_json::to_vec(&make_event(serde_json::json!({}))).unwrap();
+    for origin in ["http://evil.example", "null", "https://localhost.evil.example"] {
+        let res = server.request(
+            "POST",
+            "/event",
+            Some(&event),
+            &[("Origin", origin), ("Content-Type", "text/plain")],
+        );
+        assert_eq!(res.status, 403, "origin {origin}");
+    }
+    assert_eq!(server.health()["events"], 0);
+
+    // The hook sends no Origin; the page sends its own
+    let res = server.request("POST", "/event", Some(&event), &[]);
+    assert_eq!(res.status, 200);
+    let res = server.request("GET", "/health", None, &[("Origin", ALLOWED_ORIGIN)]);
+    assert_eq!(res.status, 200);
 }
 
 // ============================================================================

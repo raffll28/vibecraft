@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
-use vibecraft_core::validation::resolve;
+use vibecraft_core::validation::{is_origin_allowed, resolve};
 
 use crate::http::{Body, Request, Response};
 use crate::state::{Config, Shared, lock};
@@ -36,6 +36,13 @@ fn json_body(req: &Request) -> Result<Option<Value>, Response> {
 }
 
 pub fn handle(req: &Request, shared: &Shared, config: &Config) -> Response {
+    // CSRF: other sites can still send requests here (forms, no-cors fetch),
+    // and browsers mark them with their Origin. The hook sends none.
+    if let Some(origin) = req.header("origin")
+        && !is_origin_allowed(Some(origin))
+    {
+        return error(403, "Origin not allowed");
+    }
     match (req.method.as_str(), req.url.as_str()) {
         ("POST", "/event") => post_event(req, shared),
         ("GET", "/health") => {

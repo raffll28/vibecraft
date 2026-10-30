@@ -52,6 +52,17 @@ pub fn is_origin_allowed(origin: Option<&str>) -> bool {
     (host == "localhost" || host == "127.0.0.1") && scheme != "file"
 }
 
+/// Should a request with this `Host` header be served?
+///
+/// Only localhost and 127.0.0.1 (any port). A DNS rebinding page reaches the
+/// server through its own domain name pointed at 127.0.0.1, so its requests
+/// carry that name here.
+pub fn is_host_allowed(host: Option<&str>) -> bool {
+    host.is_some_and(|h| {
+        !h.contains(['/', '?', '#']) && is_origin_allowed(Some(&format!("http://{h}")))
+    })
+}
+
 /// Expand a leading `~` or `~/` to $HOME
 pub fn expand_home(path: &str) -> String {
     if path == "~" || path.starts_with("~/") {

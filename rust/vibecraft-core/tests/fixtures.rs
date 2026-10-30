@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 use vibecraft_core::event_store::{EventStore, LineSplitter};
-use vibecraft_core::validation::{expand_home, is_origin_allowed};
+use vibecraft_core::validation::{expand_home, is_host_allowed, is_origin_allowed};
 
 fn fixture(name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -31,6 +31,15 @@ fn is_origin_allowed_fixtures() {
     let f = fixture("validation.json");
     for case in cases(&f, "isOriginAllowed") {
         let got = is_origin_allowed(case["input"].as_str());
+        assert_eq!(json!(got), case["expected"], "{}", name(case));
+    }
+}
+
+#[test]
+fn is_host_allowed_fixtures() {
+    let f = fixture("validation.json");
+    for case in cases(&f, "isHostAllowed") {
+        let got = is_host_allowed(case["input"].as_str());
         assert_eq!(json!(got), case["expected"], "{}", name(case));
     }
 }

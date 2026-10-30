@@ -23,7 +23,7 @@ use std::thread;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use vibecraft_core::validation::is_origin_allowed;
+use vibecraft_core::validation::{is_host_allowed, is_origin_allowed};
 
 use crate::http::{ReadError, read_request};
 use crate::state::{CLIENT_QUEUE_FRAMES, Client, Config, Frame, Shared, State, lock};
@@ -198,6 +198,12 @@ fn handle_connection(stream: TcpStream, shared: &Shared, config: &Config) {
                 return;
             }
         };
+
+        // DNS rebinding: a page on another domain pointed at 127.0.0.1
+        if !is_host_allowed(req.header("host")) {
+            let _ = http::Response::new(403, None, "Host not allowed").write_to(&mut writer, false);
+            return;
+        }
 
         if ws::is_upgrade(&req) {
             let _ = reader.get_ref().set_read_timeout(None);
