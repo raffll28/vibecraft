@@ -6,14 +6,14 @@
 
 import * as THREE from 'three'
 import type { StationType } from '../../shared/types.ts'
-import type { WorkshopScene, Station } from '../scene/WorkshopScene.ts'
+import type { WorkshopScene } from '../scene/WorkshopScene.ts'
 import type { ICharacter, CharacterOptions, CharacterState } from './ICharacter.ts'
 
 // Re-export for backwards compatibility
 export type ClaudeState = CharacterState
 export type ClaudeOptions = CharacterOptions
 
-const DEFAULT_OPTIONS: Required<ClaudeOptions> = {
+const DEFAULT_OPTIONS: Required<Omit<ClaudeOptions, 'startPosition'>> = {
   scale: 1,
   color: 0xd4a574, // Warm beige/tan (Claude's brand color)
   statusColor: 0x4ade80, // Green
@@ -27,7 +27,7 @@ export class Claude implements ICharacter {
   public readonly id: string
 
   private scene: WorkshopScene
-  private options: Required<ClaudeOptions>
+  private options: Required<Omit<ClaudeOptions, 'startPosition'>>
   private targetPosition: THREE.Vector3 | null = null
   private moveSpeed = 3 // units per second
   private bobTime = 0
@@ -69,9 +69,8 @@ export class Claude implements ICharacter {
 
     // Position at start station
     this.currentStation = this.options.startStation
-    const startStation = scene.stations.get(this.options.startStation)
-    if (startStation) {
-      this.mesh.position.copy(startStation.position)
+    if (options.startPosition) {
+      this.mesh.position.copy(options.startPosition)
     }
 
     // Add to scene
@@ -180,19 +179,6 @@ export class Claude implements ICharacter {
     // Start hidden
     group.visible = false
     return group
-  }
-
-  moveTo(station: StationType): void {
-    const targetStation = this.scene.stations.get(station)
-    if (!targetStation) {
-      console.warn(`Unknown station: ${station}`)
-      return
-    }
-
-    this.targetPosition = targetStation.position.clone()
-    this.currentStation = station
-    this.state = 'walking'
-    this.updateStatusColor()
   }
 
   /**
@@ -311,7 +297,7 @@ export class Claude implements ICharacter {
       // Show and animate thought bubbles (full size)
       this.thoughtBubbles.visible = true
       this.thoughtBubbles.scale.setScalar(1.0)
-      this.thoughtBubbles.children.forEach((bubble, i) => {
+      this.thoughtBubbles.children.forEach((bubble) => {
         const mesh = bubble as THREE.Mesh
         const baseY = mesh.userData.baseY as number
         const offset = mesh.userData.offset as number
@@ -324,7 +310,7 @@ export class Claude implements ICharacter {
       this.thinkTime += delta * 4
       this.thoughtBubbles.visible = true
       this.thoughtBubbles.scale.setScalar(0.6) // Smaller when working
-      this.thoughtBubbles.children.forEach((bubble, i) => {
+      this.thoughtBubbles.children.forEach((bubble) => {
         const mesh = bubble as THREE.Mesh
         const baseY = mesh.userData.baseY as number
         const offset = mesh.userData.offset as number

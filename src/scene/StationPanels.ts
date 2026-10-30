@@ -66,11 +66,7 @@ export class StationPanels {
   /**
    * Create panels for a zone
    */
-  createPanelsForZone(
-    zoneId: string,
-    zonePosition: THREE.Vector3,
-    zoneColor: number
-  ): void {
+  createPanelsForZone(zoneId: string, zonePosition: THREE.Vector3): void {
     const zonePanels = new Map<StationType, StationPanel>()
 
     for (const [stationType, offset] of Object.entries(STATION_OFFSETS)) {

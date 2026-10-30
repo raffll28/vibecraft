@@ -23,7 +23,7 @@ import {
 export type ClaudeState = CharacterState
 export type ClaudeOptions = CharacterOptions
 
-const DEFAULT_OPTIONS: Required<ClaudeOptions> = {
+const DEFAULT_OPTIONS: Required<Omit<ClaudeOptions, 'startPosition'>> = {
   scale: 1,
   color: 0x2a3a4a, // Dark blue-gray metal
   statusColor: 0x4ade80,
@@ -37,7 +37,7 @@ export class Claude implements ICharacter {
   public readonly id: string
 
   private scene: WorkshopScene
-  private options: Required<ClaudeOptions>
+  private options: Required<Omit<ClaudeOptions, 'startPosition'>>
   private targetPosition: THREE.Vector3 | null = null
   private moveSpeed = 3
   private bobTime = 0
@@ -99,9 +99,8 @@ export class Claude implements ICharacter {
 
     // Position at start station
     this.currentStation = this.options.startStation
-    const startStation = scene.stations.get(this.options.startStation)
-    if (startStation) {
-      this.mesh.position.copy(startStation.position)
+    if (options.startPosition) {
+      this.mesh.position.copy(options.startPosition)
     }
 
     // Add to scene
@@ -465,19 +464,6 @@ export class Claude implements ICharacter {
 
     group.visible = false
     return group
-  }
-
-  moveTo(station: StationType): void {
-    const targetStation = this.scene.stations.get(station)
-    if (!targetStation) {
-      console.warn(`Unknown station: ${station}`)
-      return
-    }
-
-    this.targetPosition = targetStation.position.clone()
-    this.currentStation = station
-    this.state = 'walking'
-    this.updateStatusColor()
   }
 
   moveToPosition(position: THREE.Vector3, station: StationType): void {

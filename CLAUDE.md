@@ -131,10 +131,12 @@ and the map.
 ### Characters and animations
 
 - `entities/ClaudeMon.ts`: the robot. States `idle`, `walking`, `working`,
-  `thinking`; `moveTo(station)` animates with TWEEN. Don't set `idle` while
-  walking, or the robot stops mid-path (check `state !== 'walking'`).
+  `thinking`; `moveToPosition(position, station)` walks it there frame by
+  frame (stations belong to zones: use `zone.stations`). Don't set `idle`
+  while walking, or the robot stops mid-path (check `state !== 'walking'`).
 - `entities/Claude.ts`: the simpler character, used for subagents
-  (`SubagentManager`, 60% scale, fanned out around the portal).
+  (`SubagentManager`, one per session, 60% scale, fanned out around its
+  zone's portal).
 - `entities/animations/`: `IdleBehaviors.ts` (random idle animations) and
   `WorkingBehaviors.ts` (per-station loops). Each behavior has `update(parts,
   progress, delta)` and must `reset(parts)` everything it moved.

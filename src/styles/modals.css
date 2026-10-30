@@ -182,18 +182,6 @@
   color: #fff;
 }
 
-.modal-btn-create {
-  background: rgba(74, 222, 128, 0.2);
-  border-color: rgba(74, 222, 128, 0.4);
-  color: #4ade80;
-}
-
-.modal-btn-create:hover {
-  background: rgba(74, 222, 128, 0.3);
-  border-color: rgba(74, 222, 128, 0.6);
-  box-shadow: 0 0 20px rgba(74, 222, 128, 0.15);
-}
-
 /* Settings Modal */
 #settings-modal {
   position: fixed;
@@ -445,19 +433,12 @@
   background: rgba(167, 139, 250, 0.3);
 }
 
-.not-connected-btn-settings,
 .not-connected-btn-explore {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.8);
 }
 
-.not-connected-btn-settings:hover,
 .not-connected-btn-explore:hover {
   background: rgba(255, 255, 255, 0.15);
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }

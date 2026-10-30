@@ -489,13 +489,6 @@ export class WorkingBehaviorManager {
   }
 
   /**
-   * Get current station being animated
-   */
-  getCurrentStation(): string | null {
-    return this.currentStation
-  }
-
-  /**
    * Get current behavior name
    */
   getCurrentBehaviorName(): string | null {

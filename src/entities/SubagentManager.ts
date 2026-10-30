@@ -4,7 +4,7 @@
  * Tracks Task tool spawns and creates mini-Claude instances for each active subagent
  */
 
-import type { WorkshopScene } from '../scene/WorkshopScene.ts'
+import type { WorkshopScene, Zone } from '../scene/WorkshopScene.ts'
 import { Claude, type ClaudeOptions } from './Claude.ts'
 
 export interface Subagent {
@@ -27,11 +27,13 @@ const SUBAGENT_COLORS = [
 
 export class SubagentManager {
   private scene: WorkshopScene
+  private zone: Zone
   private subagents: Map<string, Subagent> = new Map()
   private colorIndex = 0
 
-  constructor(scene: WorkshopScene) {
+  constructor(scene: WorkshopScene, zone: Zone) {
     this.scene = scene
+    this.zone = zone
   }
 
   /**
@@ -47,12 +49,13 @@ export class SubagentManager {
     const color = SUBAGENT_COLORS[this.colorIndex % SUBAGENT_COLORS.length]
     this.colorIndex++
 
-    // Create mini-Claude at portal station
+    // Create mini-Claude at its zone's portal
     const options: ClaudeOptions = {
       scale: 0.6, // Smaller than main Claude
       color: color,
       statusColor: color,
       startStation: 'portal',
+      startPosition: this.zone.stations.get('portal')?.position,
     }
 
     const claude = new Claude(this.scene, options)
@@ -95,13 +98,6 @@ export class SubagentManager {
    */
   get(toolUseId: string): Subagent | undefined {
     return this.subagents.get(toolUseId)
-  }
-
-  /**
-   * Get all active subagents
-   */
-  getAll(): Subagent[] {
-    return Array.from(this.subagents.values())
   }
 
   /**

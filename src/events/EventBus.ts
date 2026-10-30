@@ -120,33 +120,6 @@ export class EventBus {
     }
   }
 
-  /**
-   * Remove all handlers for an event type
-   */
-  off(type: EventType): void {
-    this.handlers.delete(type)
-  }
-
-  /**
-   * Remove all handlers
-   */
-  clear(): void {
-    this.handlers.clear()
-  }
-
-  /**
-   * Get handler count for debugging
-   */
-  getHandlerCount(type?: EventType): number {
-    if (type) {
-      return this.handlers.get(type)?.size ?? 0
-    }
-    let total = 0
-    for (const handlers of this.handlers.values()) {
-      total += handlers.size
-    }
-    return total
-  }
 }
 
 // ============================================================================

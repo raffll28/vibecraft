@@ -123,17 +123,12 @@ function getOrCreateSession(event: ClaudeEvent): SessionState | null {
   const claude = new Claude(state.scene, {
     color: zone.color,
     startStation: 'center',
+    startPosition: zone.stations.get('center')?.position,
   })
-
-  // Position Claude at the zone's center station
-  const centerStation = zone.stations.get('center')
-  if (centerStation) {
-    claude.mesh.position.copy(centerStation.position)
-  }
 
   session = {
     claude,
-    subagents: new SubagentManager(state.scene),
+    subagents: new SubagentManager(state.scene, zone),
     zone,
     color: zone.color,
     name,

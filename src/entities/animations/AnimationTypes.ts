@@ -89,12 +89,6 @@ export interface WorkingBehavior extends AnimationBehavior {
   loop: boolean
 }
 
-/** Reaction behavior (success, error, etc.) */
-export interface ReactionBehavior extends AnimationBehavior {
-  /** When to trigger: 'success', 'error', 'complete', etc. */
-  trigger: string
-}
-
 // ============================================================================
 // Easing Functions - For smooth, natural motion
 // ============================================================================
@@ -121,21 +115,6 @@ export const bounce = (t: number): number => {
   return n1 * (t -= 2.625 / d1) * t + 0.984375
 }
 
-/** Elastic easing (springy overshoot) */
-export const elastic = (t: number): number => {
-  if (t === 0 || t === 1) return t
-  const p = 0.3
-  const s = p / 4
-  return Math.pow(2, -10 * t) * Math.sin((t - s) * (2 * Math.PI) / p) + 1
-}
-
-/** Back easing (slight overshoot) */
-export const easeOutBack = (t: number): number => {
-  const c1 = 1.70158
-  const c3 = c1 + 1
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2)
-}
-
 /** Linear (no easing) */
 export const linear = (t: number): number => t
 
@@ -154,31 +133,6 @@ export const lerp = (a: number, b: number, t: number): number =>
  */
 export const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value))
-
-/**
- * Map a value from one range to another
- */
-export const mapRange = (
-  value: number,
-  inMin: number,
-  inMax: number,
-  outMin: number,
-  outMax: number
-): number => {
-  return outMin + ((value - inMin) / (inMax - inMin)) * (outMax - outMin)
-}
-
-/**
- * Create a ping-pong value (0→1→0) from progress
- */
-export const pingPong = (t: number): number =>
-  t < 0.5 ? t * 2 : 2 - t * 2
-
-/**
- * Create a stepped value (discrete steps instead of smooth)
- */
-export const stepped = (t: number, steps: number): number =>
-  Math.floor(t * steps) / steps
 
 // ============================================================================
 // Default Pose - Reset helper

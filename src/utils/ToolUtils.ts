@@ -2,29 +2,8 @@
  * ToolUtils - Pure utility functions for tool display
  *
  * These are stateless helpers used for rendering tool information
- * in the UI (icons, context strings, etc.)
+ * in the UI (context strings)
  */
-
-/**
- * Get emoji icon for a tool name
- */
-export function getToolIcon(tool: string): string {
-  const icons: Record<string, string> = {
-    Read: '📖',
-    Edit: '✏️',
-    Write: '📝',
-    Bash: '💻',
-    Grep: '🔍',
-    Glob: '📁',
-    WebFetch: '🌐',
-    WebSearch: '🔎',
-    Task: '🤖',
-    TodoWrite: '📋',
-    NotebookEdit: '📓',
-    AskFollowupQuestion: '❓',
-  }
-  return icons[tool] ?? '🔧'
-}
 
 /**
  * Extract context string from tool input for display

@@ -9,7 +9,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { StationType } from '../../shared/types.ts'
 import { HexGrid } from '../utils/HexGrid.ts'
-import { ZoneNotifications, type NotificationOptions } from './ZoneNotifications.ts'
+import { ZoneNotifications } from './ZoneNotifications.ts'
 import { StationPanels } from './StationPanels.ts'
 import type { ZoneStatus } from '../events/zoneStatus.ts'
 import {
@@ -31,7 +31,7 @@ export interface Station {
   contextSprite?: THREE.Sprite
 }
 
-export type AttentionReason = 'question' | 'finished' | 'error' | null
+export type AttentionReason = 'question' | null
 
 /** Traffic light colors for zone status */
 const STATUS_LIGHT: Record<ZoneStatus, number> = {
@@ -98,9 +98,6 @@ export class WorkshopScene {
   private cameraAnimating = false
   private readonly cameraLerpSpeed = 8 // Higher = faster animation
 
-  // Legacy single-zone compat (points to first zone)
-  public stations: Map<StationType, Station> = new Map()
-
   private container: HTMLElement
   private animationId: number | null = null
   private onRenderCallbacks: Array<(delta: number) => void> = []
@@ -139,14 +136,6 @@ export class WorkshopScene {
     maxAge: number
     baseOpacity: number
     peakOpacity: number
-  }> = []
-
-  // Floating notifications (file changes, etc.) - OLD, replaced by ZoneNotifications
-  private notifications: Array<{
-    sprite: THREE.Sprite
-    startY: number
-    age: number
-    maxAge: number
   }> = []
 
   // Zone notification system (new)
@@ -314,23 +303,20 @@ export class WorkshopScene {
   /**
    * Create a new zone for a session
    * @param sessionId - Unique session identifier
-   * @param options - Optional color and hint position for direction-aware placement
    */
-  createZone(sessionId: string, options?: { color?: number; hintPosition?: { x: number; z: number } }): Zone {
+  createZone(sessionId: string): Zone {
     // Check if zone already exists
     const existing = this.zones.get(sessionId)
     if (existing) return existing
 
-    // Determine hex position using direction-aware placement or spiral fallback
-    const hexCoord = options?.hintPosition
-      ? this.hexGrid.findNearestFreeFromCartesian(options.hintPosition.x, options.hintPosition.z)
-      : this.hexGrid.getNextInSpiral()
+    // Next free hex in the honeycomb spiral
+    const hexCoord = this.hexGrid.getNextInSpiral()
 
     // Mark hex as occupied
     this.hexGrid.occupy(hexCoord, sessionId)
 
     // Assign color and convert hex to world position
-    const zoneColor = options?.color ?? ZONE_COLORS[this.zoneColorIndex++ % ZONE_COLORS.length]
+    const zoneColor = ZONE_COLORS[this.zoneColorIndex++ % ZONE_COLORS.length]
     const { x, z } = this.hexGrid.axialToCartesian(hexCoord)
     const position = new THREE.Vector3(x, 0, z)
 
@@ -395,12 +381,7 @@ export class WorkshopScene {
     this.zoneNotifications.registerZone(sessionId, position)
 
     // Create station panels for this zone
-    this.stationPanels.createPanelsForZone(sessionId, position, zoneColor)
-
-    // Legacy compat: first zone's stations become default
-    if (this.zones.size === 1) {
-      this.stations = stations
-    }
+    this.stationPanels.createPanelsForZone(sessionId, position)
 
     // Focus camera on first zone
     if (this.zones.size === 1) {
@@ -409,32 +390,6 @@ export class WorkshopScene {
 
     console.log(`Created zone for session ${sessionId.slice(0, 8)} at position`, position)
     return zone
-  }
-
-  /**
-   * Get a zone by session ID
-   */
-  getZone(sessionId: string): Zone | undefined {
-    return this.zones.get(sessionId)
-  }
-
-  /**
-   * Get a zone's world position for spatial audio
-   * Returns {x, z} coordinates or null if zone doesn't exist
-   */
-  getZoneWorldPosition(sessionId: string): { x: number; z: number } | null {
-    const zone = this.zones.get(sessionId)
-    if (!zone) return null
-    return { x: zone.position.x, z: zone.position.z }
-  }
-
-  /**
-   * Get the hex grid position for a zone
-   */
-  getZoneHexPosition(sessionId: string): { q: number; r: number } | null {
-    const zone = this.zones.get(sessionId)
-    if (!zone) return null
-    return this.hexGrid.cartesianToHex(zone.position.x, zone.position.z)
   }
 
   /**
@@ -689,45 +644,6 @@ export class WorkshopScene {
   }
 
   /**
-   * Add subtle hex grid lines inside the zone
-   */
-  private addHexGridLines(group: THREE.Group, radius: number): void {
-    const lineMaterial = new THREE.LineBasicMaterial({
-      color: 0x3090b0,  // Cyan/teal
-      transparent: true,
-      opacity: 0.25
-    })
-
-    // Draw lines from center to each vertex
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI / 3) * i - Math.PI / 2
-      const x = radius * 0.9 * Math.cos(angle)
-      const z = radius * 0.9 * Math.sin(angle)
-
-      const points = [new THREE.Vector3(0, 0.01, 0), new THREE.Vector3(x, 0.01, z)]
-      const geometry = new THREE.BufferGeometry().setFromPoints(points)
-      const line = new THREE.Line(geometry, lineMaterial)
-      group.add(line)
-    }
-
-    // Draw concentric hex rings
-    for (const r of [3, 6]) {
-      const ringPoints: THREE.Vector3[] = []
-      for (let i = 0; i <= 6; i++) {
-        const angle = (Math.PI / 3) * i - Math.PI / 2
-        ringPoints.push(new THREE.Vector3(
-          r * Math.cos(angle),
-          0.01,
-          r * Math.sin(angle)
-        ))
-      }
-      const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPoints)
-      const ringLine = new THREE.Line(ringGeo, lineMaterial)
-      group.add(ringLine)
-    }
-  }
-
-  /**
    * Create floating label for a zone
    */
   private createZoneLabel(sessionId: string, color: number): THREE.Sprite {
@@ -955,19 +871,6 @@ export class WorkshopScene {
     if (zone.labelText !== undefined) {
       this.updateZoneLabel(sessionId, zone.labelText)
     }
-  }
-
-  /**
-   * Get all zones that need attention
-   */
-  getZonesNeedingAttention(): { id: string; reason: AttentionReason }[] {
-    const result: { id: string; reason: AttentionReason }[] = []
-    for (const [id, zone] of this.zones) {
-      if (zone.attentionReason) {
-        result.push({ id, reason: zone.attentionReason })
-      }
-    }
-    return result
   }
 
   /**
@@ -1540,22 +1443,13 @@ export class WorkshopScene {
             station.mesh.position.y = baseY + floatOffset
           }
         }
-        const ringMat = zone.ring.material as THREE.MeshBasicMaterial
 
         // Ring pulse animation (color is controlled by setZoneStatus, this only animates opacity/scale)
         if (zone.attentionReason) {
           zone.attentionTime += delta
 
-          // Different intensity by type - questions/errors are urgent, finished is subtle
-          if (zone.attentionReason === 'finished') {
-            // Subtle, slow pulse for finished
-            const pulse = Math.sin(zone.attentionTime * 2) * 0.5 + 0.5
-            zone.ring.scale.setScalar(1 + pulse * 0.02)
-          } else {
-            // More noticeable pulse for questions/errors
-            const pulse = Math.sin(zone.attentionTime * 4) * 0.5 + 0.5
-            zone.ring.scale.setScalar(1 + pulse * 0.08)
-          }
+          const pulse = Math.sin(zone.attentionTime * 4) * 0.5 + 0.5
+          zone.ring.scale.setScalar(1 + pulse * 0.08)
         } else if (zone.pulseIntensity > 0) {
           // Activity pulse (brief)
           zone.pulseIntensity = Math.max(0, zone.pulseIntensity - delta * 0.5)
@@ -1605,9 +1499,6 @@ export class WorkshopScene {
 
       // Update station pulses
       this.updateStationPulses(delta)
-
-      // Update floating notifications (legacy)
-      this.updateNotifications(delta)
 
       // Update zone notifications (new system)
       this.zoneNotifications.update(delta)
@@ -1728,18 +1619,8 @@ export class WorkshopScene {
   /**
    * Set context text above a station in a specific zone
    */
-  setStationContext(stationType: StationType, context: string | null, sessionId?: string): void {
-    // Find stations either from zone or legacy
-    let stations: Map<StationType, Station>
-    if (sessionId) {
-      const zone = this.zones.get(sessionId)
-      if (!zone) return
-      stations = zone.stations
-    } else {
-      stations = this.stations
-    }
-
-    const station = stations.get(stationType)
+  setStationContext(stationType: StationType, context: string | null, sessionId: string): void {
+    const station = this.zones.get(sessionId)?.stations.get(stationType)
     if (!station) return
 
     // Remove existing context sprite
@@ -1818,7 +1699,7 @@ export class WorkshopScene {
    * - setTimeout spawns each ring only when needed, not all at once
    * - Simple fade from peak to 0 with ease-out curve for smooth disappearance
    */
-  spawnClickPulse(x: number, z: number, color = 0x4ac8e8, y = 0.03): void {
+  spawnClickPulse(x: number, z: number, y = 0.03): void {
     const hexRadius = this.hexGrid.hexRadius
     const clickedHex = this.hexGrid.cartesianToHex(x, z)
 
@@ -2010,117 +1891,6 @@ export class WorkshopScene {
   // ============================================================================
 
   /**
-   * Show a floating notification above a zone
-   * @param sessionId - Zone to show notification above
-   * @param text - Text to display (e.g., "File.tsx +25, -2")
-   * @param color - Text color (default: green for success)
-   */
-  showNotification(sessionId: string, text: string, color = '#4ade80'): void {
-    const zone = this.zones.get(sessionId)
-    if (!zone) return
-
-    // Create notification sprite
-    const sprite = this.createNotificationSprite(text, color)
-
-    // Position above zone center
-    const zoneCenter = zone.floor.position.clone()
-    const startY = 2.5
-    sprite.position.set(zoneCenter.x, startY, zoneCenter.z)
-    this.scene.add(sprite)
-
-    this.notifications.push({
-      sprite,
-      startY,
-      age: 0,
-      maxAge: 3,  // 3 seconds
-    })
-  }
-
-  /**
-   * Create a notification sprite (smaller, more compact than labels)
-   */
-  private createNotificationSprite(text: string, color: string): THREE.Sprite {
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')!
-
-    canvas.width = 512
-    canvas.height = 64
-
-    // Font
-    const fontSize = 24
-    ctx.font = `600 ${fontSize}px ui-monospace, SFMono-Regular, monospace`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-
-    const centerX = canvas.width / 2
-    const centerY = canvas.height / 2
-
-    // Dark backdrop pill
-    const textWidth = ctx.measureText(text).width
-    const padding = 20
-    const pillWidth = textWidth + padding * 2
-    const pillHeight = 40
-    const pillX = centerX - pillWidth / 2
-    const pillY = centerY - pillHeight / 2
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'
-    ctx.beginPath()
-    ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 8)
-    ctx.fill()
-
-    // Text with color
-    ctx.fillStyle = color
-    ctx.fillText(text, centerX, centerY)
-
-    // Create texture and sprite
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.needsUpdate = true
-
-    const material = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      opacity: 1,
-      depthTest: false,
-    })
-
-    const sprite = new THREE.Sprite(material)
-    sprite.scale.set(4, 0.5, 1)
-
-    return sprite
-  }
-
-  /**
-   * Update floating notifications (called from render loop)
-   */
-  private updateNotifications(delta: number): void {
-    for (let i = this.notifications.length - 1; i >= 0; i--) {
-      const notif = this.notifications[i]
-      notif.age += delta
-
-      const progress = notif.age / notif.maxAge
-
-      if (progress >= 1) {
-        // Remove finished notification
-        this.scene.remove(notif.sprite)
-        notif.sprite.material.map?.dispose()
-        notif.sprite.material.dispose()
-        this.notifications.splice(i, 1)
-      } else {
-        // Animate: float up and fade out
-        const floatHeight = progress * 1.5  // Float up 1.5 units
-        notif.sprite.position.y = notif.startY + floatHeight
-
-        // Fade: stay visible for first 60%, then fade out
-        const fadeStart = 0.6
-        const opacity = progress < fadeStart
-          ? 1
-          : 1 - ((progress - fadeStart) / (1 - fadeStart))
-        notif.sprite.material.opacity = opacity
-      }
-    }
-  }
-
-  /**
    * Get current grid range (number of hex rings)
    */
   getGridRange(): number {
@@ -2153,13 +1923,6 @@ export class WorkshopScene {
     this.clearAllContexts()
     // Clean up zone notifications (new system)
     this.zoneNotifications.dispose()
-    // Clean up notifications (legacy)
-    for (const notif of this.notifications) {
-      this.scene.remove(notif.sprite)
-      notif.sprite.material.map?.dispose()
-      notif.sprite.material.dispose()
-    }
-    this.notifications = []
     // Clean up click pulses
     for (const pulse of this.clickPulses) {
       this.scene.remove(pulse.mesh)

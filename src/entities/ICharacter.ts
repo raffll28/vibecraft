@@ -15,6 +15,8 @@ export interface CharacterOptions {
   color?: number
   statusColor?: number
   startStation?: StationType
+  /** World position to start at (the start station's position in its zone) */
+  startPosition?: THREE.Vector3
 }
 
 export interface ICharacter {
@@ -30,9 +32,6 @@ export interface ICharacter {
   /** Unique identifier for this character instance */
   readonly id: string
 
-  /** Move character to a named station */
-  moveTo(station: StationType): void
-
   /** Move character to a specific position */
   moveToPosition(position: THREE.Vector3, station: StationType): void
 
@@ -42,14 +41,3 @@ export interface ICharacter {
   /** Clean up resources when character is removed */
   dispose(): void
 }
-
-/**
- * Available character models
- * Add new models here as they're created
- */
-export type CharacterModel = 'claude' | 'claudemon'
-
-/**
- * Default character model to use
- */
-export const DEFAULT_CHARACTER_MODEL: CharacterModel = 'claudemon'

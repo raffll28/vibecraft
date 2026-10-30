@@ -270,6 +270,7 @@ impl TestServer {
         for (key, value) in extra_env {
             command.env(key, value);
         }
+        die_with_parent(&mut command);
         let mut server = Self {
             port,
             child: command.spawn().expect("spawn server"),
@@ -360,6 +361,26 @@ impl TestServer {
 
     pub fn connect_with_origin(&self, origin: Option<&str>) -> WsClient {
         WsClient::connect(self.port, origin)
+    }
+}
+
+/// Kill the child when the test process dies, even if it aborts before
+/// [`TestServer`]'s drop runs (Linux `PR_SET_PDEATHSIG`). It fires when the
+/// spawning *thread* exits, so a server must not outlive the thread that
+/// started it
+fn die_with_parent(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    unsafe extern "C" {
+        fn prctl(option: i32, arg2: u64, ...) -> i32;
+    }
+    const PR_SET_PDEATHSIG: i32 = 1;
+    const SIGKILL: u64 = 9;
+    // SAFETY: prctl is async-signal-safe, as pre_exec requires
+    unsafe {
+        command.pre_exec(|| {
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+            Ok(())
+        });
     }
 }
 

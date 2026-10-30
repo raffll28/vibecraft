@@ -136,59 +136,6 @@ export class HexGrid {
     return `${hex.q},${hex.r}`
   }
 
-  /**
-   * Parse a hex key back to coordinates
-   */
-  parseHexKey(key: string): HexCoord {
-    const [q, r] = key.split(',').map(Number)
-    return { q, r }
-  }
-
-  /**
-   * Get the 6 neighboring hex cells
-   */
-  getNeighbors(hex: HexCoord): HexCoord[] {
-    return HEX_DIRECTIONS.map(dir => ({
-      q: hex.q + dir.q,
-      r: hex.r + dir.r,
-    }))
-  }
-
-  /**
-   * Calculate hex distance between two cells (Manhattan distance in hex space)
-   */
-  distance(a: HexCoord, b: HexCoord): number {
-    const cubeA = this.axialToCube(a)
-    const cubeB = this.axialToCube(b)
-    return Math.max(
-      Math.abs(cubeA.x - cubeB.x),
-      Math.abs(cubeA.y - cubeB.y),
-      Math.abs(cubeA.z - cubeB.z)
-    )
-  }
-
-  /**
-   * Check if two hex coordinates are equal
-   */
-  equals(a: HexCoord, b: HexCoord): boolean {
-    return a.q === b.q && a.r === b.r
-  }
-
-  /**
-   * Get all hexes within a given radius from a center hex (filled circle)
-   * @param center - Center hex coordinate
-   * @param radius - Radius in hex units (1 = just center, 2 = center + neighbors, etc.)
-   */
-  getHexesInRadius(center: HexCoord, radius: number): HexCoord[] {
-    const results: HexCoord[] = []
-    for (let q = -radius + 1; q < radius; q++) {
-      for (let r = Math.max(-radius + 1, -q - radius + 1); r < Math.min(radius, -q + radius); r++) {
-        results.push({ q: center.q + q, r: center.r + r })
-      }
-    }
-    return results
-  }
-
   // ============================================================================
   // Occupancy Tracking
   // ============================================================================
@@ -221,21 +168,6 @@ export class HexGrid {
   }
 
   /**
-   * Get the session ID occupying a hex
-   */
-  getOccupant(hex: HexCoord): string | undefined {
-    return this.occupied.get(this.hexKey(hex))
-  }
-
-  /**
-   * Get the hex occupied by a session
-   */
-  getSessionHex(sessionId: string): HexCoord | undefined {
-    const key = this.sessionToHex.get(sessionId)
-    return key ? this.parseHexKey(key) : undefined
-  }
-
-  /**
    * Get count of occupied hexes
    */
   get occupiedCount(): number {
@@ -245,42 +177,6 @@ export class HexGrid {
   // ============================================================================
   // Placement Algorithms
   // ============================================================================
-
-  /**
-   * Find the nearest free hex starting from a target position
-   * Uses spiral search pattern expanding outward
-   */
-  findNearestFree(target: HexCoord): HexCoord {
-    // Check target first
-    if (!this.isOccupied(target)) {
-      return target
-    }
-
-    // Spiral outward from target
-    const maxRings = 50  // Should be more than enough
-
-    for (let ring = 1; ring <= maxRings; ring++) {
-      const hexesInRing = this.getHexesInRing(target, ring)
-
-      for (const hex of hexesInRing) {
-        if (!this.isOccupied(hex)) {
-          return hex
-        }
-      }
-    }
-
-    // Fallback: return target anyway (shouldn't happen in practice)
-    console.warn('HexGrid: No free hex found, returning target')
-    return target
-  }
-
-  /**
-   * Find nearest free hex from world cartesian coordinates
-   */
-  findNearestFreeFromCartesian(x: number, z: number): HexCoord {
-    const target = this.cartesianToHex(x, z)
-    return this.findNearestFree(target)
-  }
 
   /**
    * Get next hex in spiral sequence (fallback for keyboard/API creation)
@@ -300,30 +196,6 @@ export class HexGrid {
 
     // Fallback
     return { q: 0, r: 0 }
-  }
-
-  /**
-   * Peek at next hex in spiral without advancing the counter
-   * Used for preview/pending zone placement
-   */
-  peekNextInSpiral(): HexCoord {
-    const maxIndex = 1000
-
-    for (let i = this.spiralIndex; i < maxIndex; i++) {
-      const hex = this.indexToHexCoord(i)
-      if (!this.isOccupied(hex)) {
-        return hex  // Don't update spiralIndex
-      }
-    }
-
-    return { q: 0, r: 0 }
-  }
-
-  /**
-   * Reset spiral index (useful for testing)
-   */
-  resetSpiral(): void {
-    this.spiralIndex = 0
   }
 
   // ============================================================================
@@ -400,23 +272,4 @@ export class HexGrid {
   // Debug Utilities
   // ============================================================================
 
-  /**
-   * Get all occupied hexes (for debugging)
-   */
-  getOccupiedHexes(): Array<{ hex: HexCoord; sessionId: string }> {
-    const result: Array<{ hex: HexCoord; sessionId: string }> = []
-    for (const [key, sessionId] of this.occupied) {
-      result.push({ hex: this.parseHexKey(key), sessionId })
-    }
-    return result
-  }
-
-  /**
-   * Clear all occupancy (for testing)
-   */
-  clear(): void {
-    this.occupied.clear()
-    this.sessionToHex.clear()
-    this.spiralIndex = 0
-  }
 }
