@@ -1,6 +1,6 @@
 /**
  * EventClient - WebSocket client for receiving Claude Code events
- * (receive-only: the server pushes events, history and text tiles)
+ * (receive-only: the server pushes events and history)
  */
 
 import type { ClaudeEvent, ServerMessage } from '../../shared/types'
@@ -8,7 +8,6 @@ import type { ClaudeEvent, ServerMessage } from '../../shared/types'
 export type EventHandler = (event: ClaudeEvent) => void
 export type HistoryHandler = (events: ClaudeEvent[]) => void
 export type ConnectionHandler = (connected: boolean) => void
-export type RawMessageHandler = (data: { type: string; payload?: unknown }) => void
 
 export interface EventClientOptions {
   url: string
@@ -23,7 +22,6 @@ export class EventClient {
   private eventHandlers: Set<EventHandler> = new Set()
   private historyHandlers: Set<HistoryHandler> = new Set()
   private connectionHandlers: Set<ConnectionHandler> = new Set()
-  private rawMessageHandlers: Set<RawMessageHandler> = new Set()
   private reconnectAttempts = 0
   private reconnectTimeout: number | null = null
   private _isConnected = false
@@ -141,21 +139,6 @@ export class EventClient {
       case 'connected':
         this.log('Session:', message.payload.sessionId)
         break
-
-      default:
-        // Pass unknown message types to raw message handlers
-        this.notifyRawMessageHandlers(message as { type: string; payload?: unknown })
-        break
-    }
-  }
-
-  private notifyRawMessageHandlers(data: { type: string; payload?: unknown }): void {
-    for (const handler of this.rawMessageHandlers) {
-      try {
-        handler(data)
-      } catch (e) {
-        console.error('Raw message handler error:', e)
-      }
     }
   }
 
@@ -172,12 +155,6 @@ export class EventClient {
   onConnection(handler: ConnectionHandler): () => void {
     this.connectionHandlers.add(handler)
     return () => this.connectionHandlers.delete(handler)
-  }
-
-  /** Handle raw messages that aren't standard event types (e.g., text tiles) */
-  onRawMessage(handler: RawMessageHandler): () => void {
-    this.rawMessageHandlers.add(handler)
-    return () => this.rawMessageHandlers.delete(handler)
   }
 
   private notifyEventHandlers(event: ClaudeEvent): void {

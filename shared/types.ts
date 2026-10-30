@@ -153,7 +153,6 @@ export type ServerMessage =
   | { type: 'event'; payload: ClaudeEvent }
   | { type: 'history'; payload: ClaudeEvent[] }
   | { type: 'connected'; payload: { sessionId: string } }
-  | { type: 'text_tiles'; payload: TextTile[] }
 
 // ============================================================================
 // Visualization State
@@ -209,25 +208,4 @@ export interface BashToolInput {
   description?: string
   timeout?: number
   run_in_background?: boolean
-}
-
-// ============================================================================
-// Text Tiles (Grid Labels)
-// ============================================================================
-
-/** A text label tile on the hex grid */
-export interface TextTile {
-  /** Unique ID (UUID) */
-  id: string
-  /** The label text */
-  text: string
-  /** Hex grid position */
-  position: {
-    q: number
-    r: number
-  }
-  /** Optional color (hex string, default white) */
-  color?: string
-  /** Creation timestamp */
-  createdAt: number
 }

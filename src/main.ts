@@ -15,12 +15,10 @@ import { SubagentManager } from './entities/SubagentManager'
 import { EventClient } from './events/EventClient'
 import { eventBus, type EventContext, type EventType } from './events/EventBus'
 import { registerAllHandlers } from './events/handlers'
-import type { ClaudeEvent, TextTile } from '../shared/types'
+import type { ClaudeEvent } from '../shared/types'
 import { DEFAULTS } from '../shared/defaults'
 import { ContextMenu, type ContextMenuContext } from './ui/ContextMenu'
 import { setupKeyboardShortcuts } from './ui/KeyboardShortcuts'
-import { drawMode } from './ui/DrawMode'
-import { setupTextLabelModal, showTextLabelModal } from './ui/TextLabelModal'
 
 // ============================================================================
 // Configuration
@@ -255,7 +253,7 @@ function handleEvent(event: ClaudeEvent) {
 }
 
 // ============================================================================
-// Context Menu (text labels on the floor, dismissing zones)
+// Context Menu (dismissing zones)
 // ============================================================================
 
 let contextMenu: ContextMenu | null = null
@@ -263,74 +261,6 @@ let contextMenu: ContextMenu | null = null
 function handleContextMenuAction(action: string, context: ContextMenuContext): void {
   if (action === 'delete' && context.zoneId) {
     removeSession(context.zoneId)
-  } else if (action === 'create_text_tile' && context.hexPosition) {
-    createTextTileAtHex(context.hexPosition as { q: number; r: number })
-  } else if (action === 'edit_text_tile' && context.textTileId) {
-    editTextTile(context.textTileId as string)
-  } else if (action === 'delete_text_tile' && context.textTileId) {
-    deleteTextTile(context.textTileId as string)
-  }
-}
-
-/**
- * Create a text tile at a hex position (opens modal for text)
- */
-async function createTextTileAtHex(hex: { q: number; r: number }): Promise<void> {
-  const text = await showTextLabelModal({
-    title: 'Add Label',
-    placeholder: 'Enter your label text here...\nSupports multiple lines.',
-  })
-  if (!text?.trim()) return
-
-  try {
-    await fetch(`${API_URL}/tiles`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: text.trim(),
-        position: hex,
-      }),
-    })
-  } catch (e) {
-    console.error('Failed to create text tile:', e)
-  }
-}
-
-/**
- * Edit an existing text tile
- */
-async function editTextTile(tileId: string): Promise<void> {
-  const tile = state.scene?.getTextTiles().find(t => t.id === tileId)
-  if (!tile) return
-
-  const text = await showTextLabelModal({
-    title: 'Edit Label',
-    placeholder: 'Enter your label text here...',
-    initialText: tile.text,
-  })
-  if (text === null || text.trim() === tile.text) return
-
-  try {
-    await fetch(`${API_URL}/tiles/${tileId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text.trim() }),
-    })
-  } catch (e) {
-    console.error('Failed to update text tile:', e)
-  }
-}
-
-/**
- * Delete a text tile
- */
-async function deleteTextTile(tileId: string): Promise<void> {
-  try {
-    await fetch(`${API_URL}/tiles/${tileId}`, {
-      method: 'DELETE',
-    })
-  } catch (e) {
-    console.error('Failed to delete text tile:', e)
   }
 }
 
@@ -341,7 +271,7 @@ function setupContextMenu(): void {
 }
 
 // ============================================================================
-// Mouse: focus zones, paint hexes, context menus
+// Mouse: focus zones, context menu
 // ============================================================================
 
 function setupMouseHandling(): void {
@@ -353,53 +283,6 @@ function setupMouseHandling(): void {
   // Track mousedown position to distinguish clicks from drags
   let mouseDownPos: { x: number; y: number } | null = null
   const CLICK_THRESHOLD = 5  // pixels - if moved more than this, it's a drag
-
-  // Draw mode drag painting state
-  let isDrawModeDragging = false
-  const paintedThisDrag = new Set<string>()  // Track hexes painted during current drag
-
-  // Debounced save for hex art persistence (includes zone elevations)
-  let hexArtSaveTimer: ReturnType<typeof setTimeout> | null = null
-  const saveHexArt = () => {
-    if (hexArtSaveTimer) clearTimeout(hexArtSaveTimer)
-    hexArtSaveTimer = setTimeout(() => {
-      if (!state.scene) return
-      const hexes = state.scene.getPaintedHexes()
-      const zoneElevations = state.scene.getZoneElevations()
-      localStorage.setItem('vibecraft-hexart', JSON.stringify(hexes))
-      localStorage.setItem('vibecraft-zone-elevations', JSON.stringify(zoneElevations))
-      const elevCount = Object.keys(zoneElevations).length
-      console.log(`Saved ${hexes.length} painted hexes and ${elevCount} zone elevations to localStorage`)
-    }, 500)  // Debounce 500ms
-  }
-
-  // Helper to paint with brush size
-  const paintWithBrush = (centerHex: { q: number; r: number }) => {
-    if (!state.scene) return
-
-    const brushSize = drawMode.getBrushSize()
-    const color = drawMode.getSelectedColor()
-    const hexesToPaint = state.scene.hexGrid.getHexesInRadius(centerHex, brushSize)
-
-    let anyPainted = false
-    for (const hex of hexesToPaint) {
-      const hexKey = `${hex.q},${hex.r}`
-      if (!paintedThisDrag.has(hexKey)) {
-        paintedThisDrag.add(hexKey)
-        if (color === null) {
-          state.scene.clearPaintedHex(hex)
-        } else {
-          state.scene.paintHex(hex, color)
-        }
-        anyPainted = true
-      }
-    }
-
-    // Save to localStorage (debounced)
-    if (anyPainted) {
-      saveHexArt()
-    }
-  }
 
   // Helper to convert mouse event to normalized coordinates and raycast
   const raycastFromMouse = (event: MouseEvent) => {
@@ -425,69 +308,10 @@ function setupMouseHandling(): void {
 
   state.scene.renderer.domElement.addEventListener('mousedown', (event) => {
     mouseDownPos = { x: event.clientX, y: event.clientY }
-
-    // Start draw mode drag painting
-    if (drawMode.isEnabled() && event.button === 0) {
-      isDrawModeDragging = true
-      paintedThisDrag.clear()
-
-      // Paint the initial hex(es) with brush
-      raycastFromMouse(event)
-      if (state.scene!.worldFloor) {
-        const floorIntersects = raycaster.intersectObject(state.scene!.worldFloor)
-        if (floorIntersects.length > 0) {
-          const point = floorIntersects[0].point
-          const hex = state.scene!.hexGrid.cartesianToHex(point.x, point.z)
-          paintWithBrush(hex)
-          // Spawn click pulse at zone elevation if clicking on a zone
-          const zone = state.scene!.getZoneAtHex(hex)
-          const pulseY = zone ? zone.elevation + 0.03 : 0.03
-          state.scene!.spawnClickPulse(point.x, point.z, 0x4ac8e8, pulseY)
-        }
-      }
-    }
-  })
-
-  // Stop draw mode dragging if mouse released anywhere (safety net)
-  window.addEventListener('mouseup', () => {
-    if (isDrawModeDragging) {
-      isDrawModeDragging = false
-      paintedThisDrag.clear()
-    }
-  })
-
-  // Draw mode drag painting on mousemove
-  state.scene.renderer.domElement.addEventListener('mousemove', (event) => {
-    if (!state.scene || !isDrawModeDragging || !drawMode.isEnabled()) return
-
-    raycastFromMouse(event)
-    if (state.scene.worldFloor) {
-      // Check both floor and painted hexes (for painting on top of existing)
-      const floorIntersects = raycaster.intersectObject(state.scene.worldFloor)
-      const paintedHexMeshes = state.scene.getPaintedHexMeshes()
-      const paintedIntersects = paintedHexMeshes.length > 0
-        ? raycaster.intersectObjects(paintedHexMeshes)
-        : []
-
-      const allIntersects = [...floorIntersects, ...paintedIntersects]
-        .sort((a, b) => a.distance - b.distance)
-
-      if (allIntersects.length > 0) {
-        const point = allIntersects[0].point
-        const hex = state.scene.hexGrid.cartesianToHex(point.x, point.z)
-        paintWithBrush(hex)
-      }
-    }
   })
 
   // Left-click handler
   state.scene.renderer.domElement.addEventListener('mouseup', (event) => {
-    // Stop draw mode dragging
-    if (isDrawModeDragging) {
-      isDrawModeDragging = false
-      paintedThisDrag.clear()
-    }
-
     if (!state.scene || !mouseDownPos) return
 
     // Check if this was a drag (mouse moved too much)
@@ -503,11 +327,6 @@ function setupMouseHandling(): void {
 
     raycastFromMouse(event)
 
-    // In draw mode, skip zone/Claude focus - painting is handled in mousedown/mousemove
-    if (drawMode.isEnabled()) {
-      return
-    }
-
     // Clicking anywhere in a zone (or on its Claude) focuses it
     const clickedZone = findClickedZone()
     if (clickedZone) {
@@ -516,49 +335,12 @@ function setupMouseHandling(): void {
       return
     }
 
-    // Nothing was clicked - check if we hit the world floor or painted hexes
-    // If so, show the text label menu
+    // Clicking the floor just shows a pulse
     if (state.scene.worldFloor) {
-      // Check both floor and painted hexes (painted hexes block floor raycast)
       const floorIntersects = raycaster.intersectObject(state.scene.worldFloor)
-      const paintedHexMeshes = state.scene.getPaintedHexMeshes()
-      const paintedIntersects = paintedHexMeshes.length > 0
-        ? raycaster.intersectObjects(paintedHexMeshes)
-        : []
-
-      // Use whichever hit is closest (painted hex is usually on top of floor)
-      const allIntersects = [...floorIntersects, ...paintedIntersects]
-        .sort((a, b) => a.distance - b.distance)
-
-      if (allIntersects.length > 0) {
-        const point = allIntersects[0].point
-        const hex = state.scene.hexGrid.cartesianToHex(point.x, point.z)
-
-        // Spawn visual pulse feedback at click location
+      if (floorIntersects.length > 0) {
+        const point = floorIntersects[0].point
         state.scene.spawnClickPulse(point.x, point.z)
-
-        // Check if there's already a text tile at this position
-        const existingTile = state.scene.getTextTileAtHex(hex)
-
-        if (existingTile) {
-          // Show edit/delete menu for existing text tile
-          contextMenu?.show(
-            event.clientX,
-            event.clientY,
-            [
-              { key: 'E', label: `Edit "${existingTile.text}"`, action: 'edit_text_tile' },
-              { key: 'D', label: 'Delete label', action: 'delete_text_tile', danger: true },
-            ],
-            { textTileId: existingTile.id }
-          )
-        } else {
-          contextMenu?.show(
-            event.clientX,
-            event.clientY,
-            [{ key: 'T', label: 'Add text label', action: 'create_text_tile' }],
-            { hexPosition: hex }
-          )
-        }
       }
     }
   })
@@ -756,18 +538,6 @@ function setupSettingsModal(): void {
 
   if (!modal) return
 
-  // Initialize draw mode UI
-  drawMode.init()
-
-  // Wire up draw mode clear callback
-  drawMode.onClear(() => {
-    state.scene?.clearAllPaintedHexes()
-    // Clear from localStorage too
-    localStorage.removeItem('vibecraft-hexart')
-    localStorage.removeItem('vibecraft-zone-elevations')
-    console.log('Cleared hex art and zone elevations from localStorage')
-  })
-
   // Port input
   const portInput = document.getElementById('settings-port') as HTMLInputElement | null
   const portStatus = document.getElementById('settings-port-status')
@@ -894,30 +664,6 @@ function init() {
   // Create scene (zones and Claudes created dynamically per session)
   state.scene = new WorkshopScene(container)
 
-  // Load saved hex art from localStorage
-  const savedHexArt = localStorage.getItem('vibecraft-hexart')
-  if (savedHexArt) {
-    try {
-      const hexes = JSON.parse(savedHexArt)
-      state.scene.loadPaintedHexes(hexes)
-      console.log(`Loaded ${hexes.length} painted hexes from localStorage`)
-    } catch (e) {
-      console.warn('Failed to load hex art from localStorage:', e)
-    }
-  }
-
-  // Load saved zone elevations from localStorage
-  const savedZoneElevations = localStorage.getItem('vibecraft-zone-elevations')
-  if (savedZoneElevations) {
-    try {
-      const elevations = JSON.parse(savedZoneElevations)
-      state.scene.loadZoneElevations(elevations)
-      console.log(`Loaded ${Object.keys(elevations).length} zone elevations from localStorage`)
-    } catch (e) {
-      console.warn('Failed to load zone elevations from localStorage:', e)
-    }
-  }
-
   // Start rendering
   state.scene.start()
 
@@ -957,13 +703,6 @@ function init() {
     }
   })
 
-  // Text labels on the floor
-  state.client.onRawMessage((message) => {
-    if (message.type === 'text_tiles') {
-      state.scene?.setTextTiles(message.payload as TextTile[])
-    }
-  })
-
   state.client.connect()
 
   setupKeyboardShortcuts({
@@ -979,21 +718,9 @@ function init() {
   // Register camera mode change callback
   state.scene.onCameraMode(updateKeybindHelper)
 
-  // Register zone elevation change callback (to move Claude with zone)
-  state.scene.onZoneElevation((sessionId, elevation) => {
-    const session = state.sessions.get(sessionId)
-    if (session) {
-      // Update Claude's Y position to match zone elevation
-      // The base station Y is 0.3 (from createZoneStations), so add that offset
-      const stationYOffset = 0.3
-      session.claude.mesh.position.y = elevation + stationYOffset
-    }
-  })
-
   fetchConfig()
   setupSettingsModal()
   setupDevPanel()
-  setupTextLabelModal()
   setupNotConnectedOverlay()
 
   updateStatus(false, 'Connecting...')

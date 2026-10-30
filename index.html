@@ -40,17 +40,8 @@
         <!-- Keybind Helper (bottom-left) -->
         <div id="keybind-helper">
           <div class="keybind-list">
-            <span class="keybind"><kbd>1-9</kbd> sessions · <kbd>`</kbd><kbd>0</kbd> all · <kbd>F</kbd> follow · <kbd>D</kbd> draw</span>
+            <span class="keybind"><kbd>1-9</kbd> sessions · <kbd>`</kbd><kbd>0</kbd> all · <kbd>F</kbd> follow · <kbd>P</kbd> panels</span>
           </div>
-        </div>
-
-        <!-- Draw Mode UI (bottom right of scene) -->
-        <div id="draw-indicator">
-          <span class="draw-mode-label">DRAW MODE</span>
-          <span class="draw-mode-hint"><kbd>D</kbd> exit · <kbd>X</kbd> clear · <kbd>Q</kbd><kbd>E</kbd> brush · <kbd>R</kbd> 3D</span>
-        </div>
-        <div id="draw-palette">
-          <!-- Populated by DrawMode.ts -->
         </div>
 
       </div>
@@ -97,34 +88,6 @@
 
         <div class="modal-actions">
           <button type="button" class="modal-btn modal-btn-cancel" id="settings-close">✕ Close</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Text Label Modal (for hex text labels) -->
-    <div id="text-label-modal">
-      <div class="modal-content text-label-modal-content">
-        <div class="modal-header">
-          <h3 id="text-label-title">Add Label</h3>
-        </div>
-
-        <div class="text-label-body">
-          <textarea
-            id="text-label-input"
-            class="text-label-textarea"
-            placeholder="Enter your text here..."
-            maxlength="500"
-            rows="4"
-          ></textarea>
-          <div class="text-label-footer">
-            <span class="text-label-char-count" id="text-label-char-count">0/500</span>
-            <span class="text-label-hint">Enter to save, Shift+Enter for newline</span>
-          </div>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" class="modal-btn modal-btn-cancel" id="text-label-cancel">Cancel</button>
-          <button type="button" class="modal-btn modal-btn-create" id="text-label-save">Save</button>
         </div>
       </div>
     </div>

@@ -48,11 +48,9 @@ Sessions already running pick up the hook after a restart.
 | `0` / `` ` `` | Overview of all zones |
 | `F` | Follow the active session |
 | `P` | Station panels (last tools per workstation) |
-| `D` | Draw mode: paint the floor (`1-6` colors, `0` eraser, `Q/E` brush, `R` 3D stack, `X` clear) |
 | `Alt+D` | Animation test panel |
 
-Click a zone to focus it, right-click it to dismiss it, and click the floor to
-add a text label.
+Click a zone to focus it, right-click it to dismiss it.
 
 ## Configuration
 
@@ -63,7 +61,6 @@ Environment variables of `vibecraft-server`, all optional:
 | `VIBECRAFT_PORT` | 4003 | HTTP and WebSocket port |
 | `VIBECRAFT_HOST` | 127.0.0.1 | Bind address (keep it local: events carry your prompts) |
 | `VIBECRAFT_EVENTS_FILE` | `~/.vibecraft/data/events.jsonl` | Event log written by the hook |
-| `VIBECRAFT_TILES_FILE` | `~/.vibecraft/data/tiles.json` | Floor text labels |
 | `VIBECRAFT_MAX_EVENTS` | 1000 | Events kept in memory |
 | `VIBECRAFT_DIST_DIR` | `dist/` next to the repo | Built frontend |
 

@@ -89,7 +89,6 @@ export class ZoneNotifications {
   private scene: THREE.Scene
   private notifications: ActiveNotification[] = []
   private zonePositions: Map<string, THREE.Vector3> = new Map()
-  private zoneElevations: Map<string, number> = new Map()
 
   // Configuration
   private readonly BASE_Y = 2.5           // Starting height above zone
@@ -114,16 +113,8 @@ export class ZoneNotifications {
    */
   unregisterZone(zoneId: string): void {
     this.zonePositions.delete(zoneId)
-    this.zoneElevations.delete(zoneId)
     // Remove any active notifications for this zone
     this.clearZone(zoneId)
-  }
-
-  /**
-   * Update a zone's elevation (for raised zones)
-   */
-  updateZoneElevation(zoneId: string, elevation: number): void {
-    this.zoneElevations.set(zoneId, elevation)
   }
 
   /**
@@ -148,9 +139,8 @@ export class ZoneNotifications {
     // Create sprite
     const sprite = this.createSprite(displayText, color)
 
-    // Position with stacking offset, accounting for zone elevation
-    const zoneElevation = this.zoneElevations.get(zoneId) ?? 0
-    const startY = zoneElevation + this.BASE_Y + slot * this.STACK_SPACING
+    // Position with stacking offset
+    const startY = this.BASE_Y + slot * this.STACK_SPACING
     sprite.position.set(zonePos.x, startY, zonePos.z)
     this.scene.add(sprite)
 

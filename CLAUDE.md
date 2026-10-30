@@ -55,14 +55,14 @@ framing) and inotify (direct libc FFI) are hand-written in
 - `main.rs`: startup (loads events, compacts the file past 10 MB), the events
   file watcher, the connection loop and the WebSocket client lifecycle.
 - `routes.rs`: `POST /event`, `GET /health`, `GET /config` (username for the
-  HUD), `/tiles` CRUD, CORS, static files from `dist/`.
+  HUD), CORS, static files from `dist/`.
 - `state.rs`: config from env vars, shared state behind a mutex, broadcast.
   Each WebSocket client has a writer thread fed by a bounded queue
   (`CLIENT_QUEUE_FRAMES`); a client that falls behind is disconnected.
 - `setup.rs`: installs the hook binary and registers it for all events.
 
-On connect a client gets `connected`, `text_tiles`, then `history` (events
-from the last 30 minutes, at most 50). Afterwards: `event` and `text_tiles`.
+On connect a client gets `connected`, then `history` (events from the last
+30 minutes, at most 50). Afterwards: `event`.
 The server ignores anything clients send.
 
 **Hook** (`vibecraft-hook/src`): `event.rs` maps hook input to events
@@ -141,12 +141,11 @@ and the map.
 ### Scene
 
 - `WorkshopScene.ts`: hex world grid, zones in a honeycomb spiral
-  (`HexGrid`), cameras (focused, overview, follow-active), painted hexes and
-  zone elevation, text tiles. Performance choices: `BasicShadowMap`, 512px
-  shadow map, one hemisphere light, no antialiasing, 30 fps when idle.
+  (`HexGrid`), cameras (focused, overview, follow-active). Performance
+  choices: `BasicShadowMap`, 512px shadow map, one hemisphere light, no
+  antialiasing, 30 fps when idle.
 - `ZoneNotifications.ts`: floating text per zone (`showForTool()`).
 - `StationPanels.ts`: last 3 tools per station (`P`).
-- `ui/DrawMode.ts`: hex painting (`D`), stored in localStorage.
 
 ## Commands
 
@@ -164,7 +163,6 @@ at other builds.
 
 ## Data
 
-`~/.vibecraft/data/events.jsonl` (hook), `~/.vibecraft/data/tiles.json`
-(floor labels), and in the browser's localStorage: painted hexes, zone
-elevations, grid size, port, streaming mode. See
+`~/.vibecraft/data/events.jsonl` (hook), and in the browser's localStorage:
+grid size, port, streaming mode. See
 [docs/STORAGE.md](docs/STORAGE.md).

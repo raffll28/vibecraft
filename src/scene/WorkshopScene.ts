@@ -7,11 +7,10 @@
 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import type { StationType, TextTile } from '../../shared/types'
+import type { StationType } from '../../shared/types'
 import { HexGrid } from '../utils/HexGrid'
 import { ZoneNotifications, type NotificationOptions } from './ZoneNotifications'
 import { StationPanels } from './StationPanels'
-import { drawMode } from '../ui/DrawMode'
 import type { ZoneStatus } from '../events/zoneStatus'
 import {
   addBookshelfDetails,
@@ -26,8 +25,7 @@ import {
 
 export interface Station {
   type: StationType
-  position: THREE.Vector3  // World position (updated when zone elevation changes)
-  localPosition: THREE.Vector3  // Position relative to zone (for recalculating world pos)
+  position: THREE.Vector3  // World position
   mesh: THREE.Group
   label: string
   contextSprite?: THREE.Sprite
@@ -62,17 +60,6 @@ export interface Zone {
   // Animation state for enter/exit transitions
   animationState?: 'entering' | 'exiting'
   animationProgress?: number // 0 to 1
-  // Elevation from painting hexes under the zone (raises the platform)
-  // NOTE: zone.position.y is always 0. Components needing world Y must add elevation:
-  //   - focusZone(): camera target includes elevation
-  //   - ZoneNotifications: tracks elevations via updateZoneElevation callback
-  //   - Claude position: updated via onZoneElevation callback in main.ts
-  //   - Click pulses: manually add elevation in main.ts click handler
-  elevation: number
-  // Vertical edge lines (shown when elevated)
-  edgeLines?: THREE.LineSegments
-  // Solid side faces (shown when elevated)
-  sideMesh?: THREE.Mesh
 }
 
 export type CameraMode = 'focused' | 'overview' | 'follow-active'
@@ -104,10 +91,6 @@ export class WorkshopScene {
   public cameraMode: CameraMode = 'focused'
   public focusedZoneId: string | null = null
   private onCameraModeChange: ((mode: CameraMode) => void) | null = null
-  private onZoneElevationChange: ((sessionId: string, elevation: number) => void) | null = null
-
-  // Pending zone elevations (loaded from localStorage, applied when zones are created)
-  private pendingZoneElevations: Map<string, number> = new Map()
 
   // Camera animation
   private cameraTargetPos = new THREE.Vector3()
@@ -187,15 +170,6 @@ export class WorkshopScene {
 
   // World hex grid overlay
   private worldHexGrid: THREE.Group | THREE.LineSegments | null = null
-
-  // Text tiles (grid labels)
-  private textTileSprites = new Map<string, {
-    sprite: THREE.Sprite
-    tile: TextTile
-  }>()
-
-  // Painted hexes (draw mode) - stores mesh, height, and color
-  private paintedHexes = new Map<string, { mesh: THREE.Mesh; height: number; color: number }>()
 
   // Hex hover highlight
   private hoverHighlight: THREE.Line | null = null
@@ -355,9 +329,6 @@ export class WorkshopScene {
     // Mark hex as occupied
     this.hexGrid.occupy(hexCoord, sessionId)
 
-    // Clear any painted hex at this position (zones take precedence)
-    this.clearPaintedHex(hexCoord)
-
     // Assign color and convert hex to world position
     const zoneColor = options?.color ?? ZONE_COLORS[this.zoneColorIndex++ % ZONE_COLORS.length]
     const { x, z } = this.hexGrid.axialToCartesian(hexCoord)
@@ -387,18 +358,6 @@ export class WorkshopScene {
     const { particles, velocities } = this.createParticleSystem(zoneColor)
     group.add(particles)
 
-    // Create vertical edge lines (hidden until zone is elevated)
-    const edgeLines = this.createZoneEdgeLines(zoneColor)
-    edgeLines.visible = false
-    this.scene.add(edgeLines)  // Add to scene (not group) so they stay at world origin
-    edgeLines.position.copy(position)  // Position at zone's world location
-
-    // Create solid side faces (hidden until zone is elevated)
-    const sideMesh = this.createZoneSideMesh(zoneColor)
-    sideMesh.visible = false
-    this.scene.add(sideMesh)
-    sideMesh.position.copy(position)
-
     const zone: Zone = {
       id: sessionId,
       group,
@@ -418,10 +377,6 @@ export class WorkshopScene {
       // Start animation
       animationState: 'entering',
       animationProgress: 0,
-      // Elevation from painting
-      elevation: 0,
-      edgeLines,
-      sideMesh,
     }
 
     // Start with scale 0 for enter animation
@@ -450,13 +405,6 @@ export class WorkshopScene {
     // Focus camera on first zone
     if (this.zones.size === 1) {
       this.focusZone(sessionId)
-    }
-
-    // Apply pending elevation if one was loaded from localStorage
-    const pendingElevation = this.pendingZoneElevations.get(sessionId)
-    if (pendingElevation !== undefined) {
-      this.setZoneElevation(sessionId, pendingElevation)
-      this.pendingZoneElevations.delete(sessionId)
     }
 
     console.log(`Created zone for session ${sessionId.slice(0, 8)} at position`, position)
@@ -559,20 +507,6 @@ export class WorkshopScene {
       }
     }
 
-    // Clean up edge lines
-    if (zone.edgeLines) {
-      this.scene.remove(zone.edgeLines)
-      zone.edgeLines.geometry.dispose()
-      ;(zone.edgeLines.material as THREE.LineBasicMaterial).dispose()
-    }
-
-    // Clean up side mesh
-    if (zone.sideMesh) {
-      this.scene.remove(zone.sideMesh)
-      zone.sideMesh.geometry.dispose()
-      ;(zone.sideMesh.material as THREE.MeshStandardMaterial).dispose()
-    }
-
     this.zones.delete(sessionId)
     console.log(`Deleted zone for session ${sessionId.slice(0, 8)}`)
 
@@ -592,9 +526,7 @@ export class WorkshopScene {
     this.focusedZoneId = sessionId
     this.cameraMode = 'focused'
 
-    // Account for zone elevation (raised zones from hex painting underneath)
     const target = zone.position.clone()
-    target.y += zone.elevation
     const cameraPos = target.clone().add(new THREE.Vector3(8, 6, 8))
 
     if (animate) {
@@ -605,121 +537,6 @@ export class WorkshopScene {
     }
 
     this.notifyCameraModeChange()
-  }
-
-  /**
-   * Raise a zone's elevation (used when painting under zones)
-   * @param sessionId - The zone to raise
-   * @param amount - Amount to raise (default 0.5)
-   * @returns true if zone was raised
-   */
-  raiseZone(sessionId: string, amount = 0.5): boolean {
-    const zone = this.zones.get(sessionId)
-    if (!zone) return false
-
-    const maxElevation = 100  // Same as painted hex limit
-    if (zone.elevation >= maxElevation) return false
-
-    const newElevation = Math.min(zone.elevation + amount, maxElevation)
-    const targetY = newElevation
-
-    // Animate the zone rising
-    const startY = zone.group.position.y
-    const startTime = performance.now()
-    const duration = 150  // Quick rise animation
-
-    const animate = () => {
-      const elapsed = performance.now() - startTime
-      const progress = Math.min(elapsed / duration, 1)
-
-      // Ease out
-      const eased = 1 - Math.pow(1 - progress, 3)
-
-      zone.group.position.y = startY + (targetY - startY) * eased
-
-      if (progress < 1) {
-        requestAnimationFrame(animate)
-      } else {
-        zone.elevation = newElevation
-        // Update edge lines and side mesh to final position
-        this.updateZoneEdgeLines(zone)
-        this.updateZoneSideMesh(zone)
-        // Notify listeners (for Claude position updates)
-        this.notifyZoneElevationChange(sessionId, newElevation)
-      }
-    }
-    requestAnimationFrame(animate)
-
-    // Update edge lines and side mesh during animation start
-    zone.elevation = newElevation  // Set temporarily for edge/side update
-    this.updateZoneEdgeLines(zone)
-    this.updateZoneSideMesh(zone)
-
-    // Spawn a visual effect at top of zone
-    const worldPos = zone.position.clone()
-    this.spawnStackEffect(worldPos.x, worldPos.z, newElevation, zone.color)
-
-    return true
-  }
-
-  /**
-   * Lower a zone's elevation (used when erasing on zones)
-   * @param sessionId - The zone to lower
-   * @param amount - Amount to lower (default 0.5)
-   * @returns true if zone was lowered
-   */
-  lowerZone(sessionId: string, amount = 0.5): boolean {
-    const zone = this.zones.get(sessionId)
-    if (!zone) return false
-
-    // Can't go below 0
-    if (zone.elevation <= 0) return false
-
-    const newElevation = Math.max(zone.elevation - amount, 0)
-    const targetY = newElevation
-
-    // Animate the zone lowering
-    const startY = zone.group.position.y
-    const startTime = performance.now()
-    const duration = 150  // Quick animation
-
-    const animate = () => {
-      const elapsed = performance.now() - startTime
-      const progress = Math.min(elapsed / duration, 1)
-
-      // Ease out
-      const eased = 1 - Math.pow(1 - progress, 3)
-
-      zone.group.position.y = startY + (targetY - startY) * eased
-
-      if (progress < 1) {
-        requestAnimationFrame(animate)
-      } else {
-        zone.elevation = newElevation
-        // Update edge lines and side mesh to final position
-        this.updateZoneEdgeLines(zone)
-        this.updateZoneSideMesh(zone)
-        // Notify listeners (for Claude position updates)
-        this.notifyZoneElevationChange(sessionId, newElevation)
-      }
-    }
-    requestAnimationFrame(animate)
-
-    // Update edge lines and side mesh during animation start
-    zone.elevation = newElevation  // Set temporarily for edge/side update
-    this.updateZoneEdgeLines(zone)
-    this.updateZoneSideMesh(zone)
-
-    return true
-  }
-
-  /**
-   * Get the zone occupying a hex position (if any)
-   */
-  getZoneAtHex(hex: { q: number; r: number }): Zone | null {
-    const sessionId = this.hexGrid.getOccupant(hex)
-    if (!sessionId) return null
-    return this.zones.get(sessionId) ?? null
   }
 
   /**
@@ -793,246 +610,6 @@ export class WorkshopScene {
     if (this.onCameraModeChange) {
       this.onCameraModeChange(this.cameraMode)
     }
-  }
-
-  /**
-   * Register callback for zone elevation changes (for updating Claude positions)
-   */
-  onZoneElevation(callback: (sessionId: string, elevation: number) => void): void {
-    this.onZoneElevationChange = callback
-  }
-
-  private notifyZoneElevationChange(sessionId: string, elevation: number): void {
-    // Update station world positions to account for new elevation
-    this.updateStationPositions(sessionId)
-    // Update zone notifications to use new elevation
-    this.zoneNotifications.updateZoneElevation(sessionId, elevation)
-    // Notify external listeners (for Claude position updates)
-    if (this.onZoneElevationChange) {
-      this.onZoneElevationChange(sessionId, elevation)
-    }
-  }
-
-  /**
-   * Update all station world positions for a zone (called when elevation changes)
-   */
-  private updateStationPositions(sessionId: string): void {
-    const zone = this.zones.get(sessionId)
-    if (!zone) return
-
-    // Save original scale (may be 0.01 during enter animation)
-    const originalScale = zone.group.scale.clone()
-
-    // Temporarily set scale to 1 for correct world position calculation
-    // (localToWorld uses scale, but we want positions independent of animation state)
-    zone.group.scale.setScalar(1)
-
-    // Force update world matrix with scale=1
-    zone.group.updateMatrixWorld(true)
-
-    for (const station of zone.stations.values()) {
-      // Recalculate world position from local position
-      const worldPos = station.localPosition.clone()
-      zone.group.localToWorld(worldPos)
-      station.position.copy(worldPos)
-    }
-
-    // Restore original scale for animation
-    zone.group.scale.copy(originalScale)
-    zone.group.updateMatrixWorld(true)
-  }
-
-  /**
-   * Create vertical edge lines for a zone (shown when elevated)
-   * Creates 6 vertical lines at hex corners + 6 horizontal lines at top
-   */
-  private createZoneEdgeLines(color: number): THREE.LineSegments {
-    const hexRadius = 10
-    const positions: number[] = []
-
-    // Create vertical lines at each hex corner
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI / 3) * i - Math.PI / 2
-      const x = hexRadius * Math.cos(angle)
-      const z = hexRadius * Math.sin(angle)
-
-      // Vertical line from y=0 to y=1 (will be scaled by elevation)
-      positions.push(x, 0, z)  // Bottom
-      positions.push(x, 1, z)  // Top
-    }
-
-    // Create horizontal lines connecting corners at top (y=1)
-    for (let i = 0; i < 6; i++) {
-      const angle1 = (Math.PI / 3) * i - Math.PI / 2
-      const angle2 = (Math.PI / 3) * ((i + 1) % 6) - Math.PI / 2
-      const x1 = hexRadius * Math.cos(angle1)
-      const z1 = hexRadius * Math.sin(angle1)
-      const x2 = hexRadius * Math.cos(angle2)
-      const z2 = hexRadius * Math.sin(angle2)
-
-      positions.push(x1, 1, z1)
-      positions.push(x2, 1, z2)
-    }
-
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-
-    const material = new THREE.LineBasicMaterial({
-      color: color,
-      transparent: true,
-      opacity: 0.8,
-      linewidth: 2,
-    })
-
-    return new THREE.LineSegments(geometry, material)
-  }
-
-  /**
-   * Create solid side faces for an elevated zone
-   */
-  private createZoneSideMesh(color: number): THREE.Mesh {
-    const hexRadius = 10
-    // 6 sides, each side is a quad (2 triangles = 6 vertices)
-    const vertexCount = 6 * 6
-    const positions = new Float32Array(vertexCount * 3)
-    const normals = new Float32Array(vertexCount * 3)
-
-    let idx = 0
-    for (let i = 0; i < 6; i++) {
-      const angle1 = (Math.PI / 3) * i - Math.PI / 2
-      const angle2 = (Math.PI / 3) * ((i + 1) % 6) - Math.PI / 2
-      const x1 = hexRadius * Math.cos(angle1)
-      const z1 = hexRadius * Math.sin(angle1)
-      const x2 = hexRadius * Math.cos(angle2)
-      const z2 = hexRadius * Math.sin(angle2)
-
-      // Calculate outward normal for this face
-      const midAngle = (angle1 + angle2) / 2
-      const nx = Math.cos(midAngle)
-      const nz = Math.sin(midAngle)
-
-      // Triangle 1: bottom-left, bottom-right, top-right
-      positions[idx * 3] = x1; positions[idx * 3 + 1] = 0; positions[idx * 3 + 2] = z1
-      normals[idx * 3] = nx; normals[idx * 3 + 1] = 0; normals[idx * 3 + 2] = nz
-      idx++
-      positions[idx * 3] = x2; positions[idx * 3 + 1] = 0; positions[idx * 3 + 2] = z2
-      normals[idx * 3] = nx; normals[idx * 3 + 1] = 0; normals[idx * 3 + 2] = nz
-      idx++
-      positions[idx * 3] = x2; positions[idx * 3 + 1] = 1; positions[idx * 3 + 2] = z2
-      normals[idx * 3] = nx; normals[idx * 3 + 1] = 0; normals[idx * 3 + 2] = nz
-      idx++
-
-      // Triangle 2: bottom-left, top-right, top-left
-      positions[idx * 3] = x1; positions[idx * 3 + 1] = 0; positions[idx * 3 + 2] = z1
-      normals[idx * 3] = nx; normals[idx * 3 + 1] = 0; normals[idx * 3 + 2] = nz
-      idx++
-      positions[idx * 3] = x2; positions[idx * 3 + 1] = 1; positions[idx * 3 + 2] = z2
-      normals[idx * 3] = nx; normals[idx * 3 + 1] = 0; normals[idx * 3 + 2] = nz
-      idx++
-      positions[idx * 3] = x1; positions[idx * 3 + 1] = 1; positions[idx * 3 + 2] = z1
-      normals[idx * 3] = nx; normals[idx * 3 + 1] = 0; normals[idx * 3 + 2] = nz
-      idx++
-    }
-
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
-
-    const material = new THREE.MeshStandardMaterial({
-      color: color,
-      transparent: true,
-      opacity: 0.7,
-      side: THREE.DoubleSide,
-    })
-
-    return new THREE.Mesh(geometry, material)
-  }
-
-  /**
-   * Update zone side mesh to match elevation
-   */
-  updateZoneSideMesh(zone: Zone): void {
-    if (!zone.sideMesh) return
-
-    const elevation = zone.elevation
-    if (elevation <= 0) {
-      zone.sideMesh.visible = false
-      return
-    }
-
-    zone.sideMesh.visible = true
-
-    const positions = zone.sideMesh.geometry.attributes.position as THREE.BufferAttribute
-    const hexRadius = 10
-
-    let idx = 0
-    for (let i = 0; i < 6; i++) {
-      const angle1 = (Math.PI / 3) * i - Math.PI / 2
-      const angle2 = (Math.PI / 3) * ((i + 1) % 6) - Math.PI / 2
-      const x1 = hexRadius * Math.cos(angle1)
-      const z1 = hexRadius * Math.sin(angle1)
-      const x2 = hexRadius * Math.cos(angle2)
-      const z2 = hexRadius * Math.sin(angle2)
-
-      // Triangle 1: bottom-left, bottom-right, top-right
-      positions.setXYZ(idx++, x1, 0, z1)
-      positions.setXYZ(idx++, x2, 0, z2)
-      positions.setXYZ(idx++, x2, elevation, z2)
-
-      // Triangle 2: bottom-left, top-right, top-left
-      positions.setXYZ(idx++, x1, 0, z1)
-      positions.setXYZ(idx++, x2, elevation, z2)
-      positions.setXYZ(idx++, x1, elevation, z1)
-    }
-
-    positions.needsUpdate = true
-  }
-
-  /**
-   * Update zone edge lines to match elevation
-   */
-  updateZoneEdgeLines(zone: Zone): void {
-    if (!zone.edgeLines) return
-
-    const elevation = zone.elevation
-    if (elevation <= 0) {
-      zone.edgeLines.visible = false
-      return
-    }
-
-    zone.edgeLines.visible = true
-
-    // Update vertex positions to reflect current elevation
-    const positions = zone.edgeLines.geometry.attributes.position as THREE.BufferAttribute
-    const hexRadius = 10
-
-    let idx = 0
-    // Update vertical lines (6 lines, 2 points each)
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI / 3) * i - Math.PI / 2
-      const x = hexRadius * Math.cos(angle)
-      const z = hexRadius * Math.sin(angle)
-
-      // Bottom point (y=0)
-      positions.setXYZ(idx++, x, 0, z)
-      // Top point (y=elevation)
-      positions.setXYZ(idx++, x, elevation, z)
-    }
-
-    // Update horizontal lines at top (6 lines, 2 points each)
-    for (let i = 0; i < 6; i++) {
-      const angle1 = (Math.PI / 3) * i - Math.PI / 2
-      const angle2 = (Math.PI / 3) * ((i + 1) % 6) - Math.PI / 2
-      const x1 = hexRadius * Math.cos(angle1)
-      const z1 = hexRadius * Math.sin(angle1)
-      const x2 = hexRadius * Math.cos(angle2)
-      const z2 = hexRadius * Math.sin(angle2)
-
-      positions.setXYZ(idx++, x1, elevation, z1)
-      positions.setXYZ(idx++, x2, elevation, z2)
-    }
-
-    positions.needsUpdate = true
   }
 
   /**
@@ -1301,281 +878,6 @@ export class WorkshopScene {
     texture.magFilter = THREE.LinearFilter
     material.map = texture
     material.needsUpdate = true
-  }
-
-  // ============================================================================
-  // Text Tiles (Grid Labels)
-  // ============================================================================
-
-  /**
-   * Set all text tiles (called when receiving tiles from server)
-   */
-  setTextTiles(tiles: TextTile[]): void {
-    // Remove tiles that no longer exist
-    const newIds = new Set(tiles.map(t => t.id))
-    for (const [id] of this.textTileSprites) {
-      if (!newIds.has(id)) {
-        this.removeTextTile(id)
-      }
-    }
-
-    // Add or update tiles
-    for (const tile of tiles) {
-      if (this.textTileSprites.has(tile.id)) {
-        this.updateTextTile(tile)
-      } else {
-        this.addTextTile(tile)
-      }
-    }
-  }
-
-  /**
-   * Add a text tile to the scene
-   */
-  addTextTile(tile: TextTile): void {
-    const sprite = this.createTextTileSprite(tile.text, tile.color)
-
-    // Position at hex center, accounting for painted hex height
-    const { x, z } = this.hexGrid.axialToCartesian(tile.position)
-    const hexHeight = this.getPaintedHexHeight(tile.position)
-    sprite.position.set(x, 0.5 + hexHeight, z)
-
-    this.scene.add(sprite)
-    this.textTileSprites.set(tile.id, { sprite, tile })
-  }
-
-  /**
-   * Get the height of a painted hex at a position (0 if not painted)
-   */
-  getPaintedHexHeight(hex: { q: number; r: number }): number {
-    const key = `${hex.q},${hex.r}`
-    const data = this.paintedHexes.get(key)
-    return data?.height ?? 0
-  }
-
-  /**
-   * Update an existing text tile
-   */
-  updateTextTile(tile: TextTile): void {
-    const entry = this.textTileSprites.get(tile.id)
-    if (!entry) return
-
-    // Update position if changed (including height for painted hexes)
-    const { x, z } = this.hexGrid.axialToCartesian(tile.position)
-    const hexHeight = this.getPaintedHexHeight(tile.position)
-    entry.sprite.position.set(x, 0.5 + hexHeight, z)
-
-    // Update text/color if changed
-    if (entry.tile.text !== tile.text || entry.tile.color !== tile.color) {
-      const material = entry.sprite.material as THREE.SpriteMaterial
-      if (material.map) {
-        material.map.dispose()
-      }
-      const { texture, lineCount } = this.createTextTileTexture(tile.text, tile.color)
-      material.map = texture
-      material.needsUpdate = true
-
-      // Update scale - maintain 2:1 aspect ratio to avoid distortion
-      const baseWidth = 16
-      const baseHeight = 8
-      const scale = 1 + (lineCount - 1) * 0.3
-      entry.sprite.scale.set(baseWidth * scale, baseHeight * scale, 1)
-    }
-
-    entry.tile = tile
-  }
-
-  /**
-   * Remove a text tile from the scene
-   */
-  removeTextTile(tileId: string): void {
-    const entry = this.textTileSprites.get(tileId)
-    if (!entry) return
-
-    this.scene.remove(entry.sprite)
-    const material = entry.sprite.material as THREE.SpriteMaterial
-    if (material.map) {
-      material.map.dispose()
-    }
-    material.dispose()
-    this.textTileSprites.delete(tileId)
-  }
-
-  /**
-   * Get text tile at a hex position (for click detection)
-   */
-  getTextTileAtHex(hex: { q: number; r: number }): TextTile | null {
-    for (const [, entry] of this.textTileSprites) {
-      if (entry.tile.position.q === hex.q && entry.tile.position.r === hex.r) {
-        return entry.tile
-      }
-    }
-    return null
-  }
-
-  /**
-   * Get all text tiles
-   */
-  getTextTiles(): TextTile[] {
-    return Array.from(this.textTileSprites.values()).map(e => e.tile)
-  }
-
-  /**
-   * Create a text tile sprite
-   */
-  private createTextTileSprite(text: string, color?: string): THREE.Sprite {
-    const { texture, lineCount } = this.createTextTileTexture(text, color)
-
-    const material = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: false,
-    })
-    const sprite = new THREE.Sprite(material)
-
-    // Must maintain canvas aspect ratio (2:1) to avoid text distortion
-    // Scale uniformly based on line count
-    const baseWidth = 16
-    const baseHeight = 8  // 2:1 ratio matches canvas 1024x512
-    const scale = 1 + (lineCount - 1) * 0.3  // Grow 30% per extra line
-    sprite.scale.set(baseWidth * scale, baseHeight * scale, 1)
-
-    return sprite
-  }
-
-  /**
-   * Create texture for text tile with multi-line support
-   */
-  private createTextTileTexture(text: string, color?: string): {
-    texture: THREE.CanvasTexture
-    lineCount: number
-  } {
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')!
-
-    // Larger canvas for more text
-    canvas.width = 1024
-    canvas.height = 512
-
-    const tileColor = color || '#4ac8e8'  // Default to cyan theme
-    const fontSize = 36
-    const lineHeight = fontSize * 1.4
-    const padding = 32
-    const maxWidth = canvas.width - padding * 2
-    const minContentWidth = 200  // Minimum panel width for short text
-
-    // Setup font for measurements
-    ctx.font = `500 ${fontSize}px ui-sans-serif, system-ui, -apple-system, sans-serif`
-
-    // Word wrap text
-    const lines = this.wrapText(ctx, text, maxWidth)
-
-    // Calculate actual content bounds with minimum width
-    const textHeight = lines.length * lineHeight
-    const maxLineWidth = Math.max(...lines.map(line => ctx.measureText(line).width))
-    const contentWidth = Math.max(Math.min(maxLineWidth + padding * 2, canvas.width), minContentWidth)
-    const contentHeight = textHeight + padding * 2
-
-    // Calculate panel dimensions (centered in canvas)
-    const panelX = (canvas.width - contentWidth) / 2
-    const panelY = (canvas.height - contentHeight) / 2
-    const bevel = Math.min(contentHeight * 0.25, 60)  // Hex-style beveled corners, capped to avoid cutting text
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    // Draw hexagonal panel background (flat-top hex style with beveled left/right edges)
-    ctx.save()
-    ctx.fillStyle = 'rgba(10, 12, 18, 0.92)'
-    ctx.beginPath()
-    ctx.moveTo(panelX + bevel, panelY)  // Top-left after bevel
-    ctx.lineTo(panelX + contentWidth - bevel, panelY)  // Top-right before bevel
-    ctx.lineTo(panelX + contentWidth, panelY + bevel)  // Right top corner
-    ctx.lineTo(panelX + contentWidth, panelY + contentHeight - bevel)  // Right bottom before bevel
-    ctx.lineTo(panelX + contentWidth - bevel, panelY + contentHeight)  // Bottom-right
-    ctx.lineTo(panelX + bevel, panelY + contentHeight)  // Bottom-left
-    ctx.lineTo(panelX, panelY + contentHeight - bevel)  // Left bottom corner
-    ctx.lineTo(panelX, panelY + bevel)  // Left top before bevel
-    ctx.closePath()
-    ctx.fill()
-    ctx.restore()
-
-    // Draw text with subtle glow
-    ctx.font = `500 ${fontSize}px ui-sans-serif, system-ui, -apple-system, sans-serif`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'top'
-
-    const textStartY = panelY + padding + 4  // Below accent line
-    const centerX = canvas.width / 2
-
-    // Subtle glow layer
-    ctx.save()
-    ctx.shadowColor = tileColor
-    ctx.shadowBlur = 15
-    ctx.fillStyle = tileColor
-    ctx.globalAlpha = 0.3
-    lines.forEach((line, i) => {
-      ctx.fillText(line, centerX, textStartY + i * lineHeight)
-    })
-    ctx.restore()
-
-    // Main text
-    ctx.save()
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
-    ctx.shadowBlur = 4
-    ctx.shadowOffsetY = 1
-    lines.forEach((line, i) => {
-      ctx.fillText(line, centerX, textStartY + i * lineHeight)
-    })
-    ctx.restore()
-
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.minFilter = THREE.LinearFilter
-    texture.magFilter = THREE.LinearFilter
-
-    return {
-      texture,
-      lineCount: lines.length,
-    }
-  }
-
-  /**
-   * Word wrap text to fit within maxWidth
-   */
-  private wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-    const lines: string[] = []
-
-    // First split by explicit line breaks
-    const paragraphs = text.split('\n')
-
-    for (const paragraph of paragraphs) {
-      if (paragraph.trim() === '') {
-        lines.push('')
-        continue
-      }
-
-      const words = paragraph.split(' ')
-      let currentLine = ''
-
-      for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word
-        const metrics = ctx.measureText(testLine)
-
-        if (metrics.width > maxWidth && currentLine) {
-          lines.push(currentLine)
-          currentLine = word
-        } else {
-          currentLine = testLine
-        }
-      }
-
-      if (currentLine) {
-        lines.push(currentLine)
-      }
-    }
-
-    return lines.length > 0 ? lines : ['']
   }
 
   /**
@@ -1887,7 +1189,6 @@ export class WorkshopScene {
       return {
         type: config.type,
         position: worldPos,
-        localPosition: localPos,
         mesh: stationGroup,
         label: config.label,
       }
@@ -1961,7 +1262,6 @@ export class WorkshopScene {
     return {
       type: config.type,
       position: worldPos,
-      localPosition: localPos,
       mesh: stationGroup,
       label: config.label,
     }
@@ -2820,272 +2120,6 @@ export class WorkshopScene {
     }
   }
 
-  // ===== DRAW MODE - HEX PAINTING =====
-
-  /**
-   * Paint a hex with a color (draw mode)
-   * If hex is already painted with same color, increases height
-   * Returns true if painted, false if skipped (e.g., zone occupied)
-   */
-  paintHex(hex: { q: number; r: number }, color: number): boolean {
-    // If hex has a zone, raise the zone instead of painting
-    if (this.hexGrid.isOccupied(hex)) {
-      const sessionId = this.hexGrid.getOccupant(hex)
-      if (sessionId && drawMode.is3DMode()) {
-        return this.raiseZone(sessionId, 0.5)
-      }
-      return false  // Can't paint on zones when 3D mode is off
-    }
-
-    const key = `${hex.q},${hex.r}`
-    const existing = this.paintedHexes.get(key)
-
-    // Determine new height
-    let newHeight = 0.5  // Base height for new hex
-    const maxHeight = 100  // Near-arbitrary cap for creative building
-
-    if (existing) {
-      if (existing.color === color && drawMode.is3DMode()) {
-        // Same color + 3D mode - increase height
-        newHeight = Math.min(existing.height + 0.5, maxHeight)
-      }
-      // Remove old mesh
-      this.scene.remove(existing.mesh)
-      existing.mesh.geometry.dispose()
-      ;(existing.mesh.material as THREE.MeshStandardMaterial).dispose()
-    }
-
-    // Create filled hex mesh
-    const { x, z } = this.hexGrid.axialToCartesian(hex)
-    const hexRadius = this.hexGrid.hexRadius * 0.95 // Slightly smaller to show grid lines
-
-    // Create hex shape (pointy-top)
-    const shape = new THREE.Shape()
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI / 3) * i - Math.PI / 2
-      const px = hexRadius * Math.cos(angle)
-      const py = hexRadius * Math.sin(angle)
-      if (i === 0) {
-        shape.moveTo(px, py)
-      } else {
-        shape.lineTo(px, py)
-      }
-    }
-    shape.closePath()
-
-    // Use ExtrudeGeometry for 3D height
-    const geometry = new THREE.ExtrudeGeometry(shape, {
-      depth: newHeight,
-      bevelEnabled: false,
-    })
-
-    const material = new THREE.MeshStandardMaterial({
-      color: color,
-      emissive: color,
-      emissiveIntensity: 0.25,
-      roughness: 0.4,
-      metalness: 0.3,
-    })
-
-    const mesh = new THREE.Mesh(geometry, material)
-    mesh.rotation.x = -Math.PI / 2 // Lay flat (extrudes upward)
-    mesh.position.set(x, 0.02, z) // Just above grid lines
-
-    this.scene.add(mesh)
-    this.paintedHexes.set(key, { mesh, height: newHeight, color })
-
-    // Update any text tile at this position to match new height
-    this.updateTextTileAtHex(hex)
-
-    // Visual feedback when stacking (height increased in 3D mode)
-    if (existing && existing.color === color && newHeight > existing.height && drawMode.is3DMode()) {
-      this.spawnStackEffect(x, z, newHeight, color)
-    }
-
-    return true
-  }
-
-  /**
-   * Update text tile position at a hex (after height change)
-   */
-  private updateTextTileAtHex(hex: { q: number; r: number }): void {
-    for (const [, entry] of this.textTileSprites) {
-      if (entry.tile.position.q === hex.q && entry.tile.position.r === hex.r) {
-        const { x, z } = this.hexGrid.axialToCartesian(hex)
-        const height = this.getPaintedHexHeight(hex)
-        entry.sprite.position.set(x, 0.5 + height, z)
-        break
-      }
-    }
-  }
-
-  /**
-   * Spawn visual effect when hex height increases (stacking feedback)
-   */
-  private spawnStackEffect(x: number, z: number, height: number, color: number): void {
-    // Create a quick pulse ring that expands and fades
-    const ringGeometry = new THREE.RingGeometry(0.5, 1.5, 6)
-    const ringMaterial = new THREE.MeshBasicMaterial({
-      color: color,
-      transparent: true,
-      opacity: 0.8,
-      side: THREE.DoubleSide,
-    })
-    const ring = new THREE.Mesh(ringGeometry, ringMaterial)
-    ring.rotation.x = -Math.PI / 2
-    ring.position.set(x, height + 0.1, z)
-    this.scene.add(ring)
-
-    // Animate: scale up and fade out
-    const startTime = performance.now()
-    const duration = 300 // ms
-    const animate = () => {
-      const elapsed = performance.now() - startTime
-      const progress = Math.min(elapsed / duration, 1)
-
-      // Ease out
-      const eased = 1 - Math.pow(1 - progress, 3)
-
-      ring.scale.setScalar(1 + eased * 2)
-      ringMaterial.opacity = 0.8 * (1 - eased)
-
-      if (progress < 1) {
-        requestAnimationFrame(animate)
-      } else {
-        this.scene.remove(ring)
-        ringGeometry.dispose()
-        ringMaterial.dispose()
-      }
-    }
-    requestAnimationFrame(animate)
-  }
-
-  /**
-   * Clear a painted hex (or lower a zone if hex is occupied)
-   */
-  clearPaintedHex(hex: { q: number; r: number }): void {
-    // If hex has a zone, lower the zone instead of clearing
-    if (this.hexGrid.isOccupied(hex)) {
-      const sessionId = this.hexGrid.getOccupant(hex)
-      if (sessionId && drawMode.is3DMode()) {
-        this.lowerZone(sessionId, 0.5)
-      }
-      return
-    }
-
-    const key = `${hex.q},${hex.r}`
-    const data = this.paintedHexes.get(key)
-    if (data) {
-      this.scene.remove(data.mesh)
-      data.mesh.geometry.dispose()
-      ;(data.mesh.material as THREE.MeshStandardMaterial).dispose()
-      this.paintedHexes.delete(key)
-      // Update any text tile at this position (back to floor level)
-      this.updateTextTileAtHex(hex)
-    }
-  }
-
-  /**
-   * Check if a hex is painted
-   */
-  isPaintedHex(hex: { q: number; r: number }): boolean {
-    return this.paintedHexes.has(`${hex.q},${hex.r}`)
-  }
-
-  /**
-   * Clear all painted hexes
-   */
-  clearAllPaintedHexes(): void {
-    // Only play sound if there's something to clear
-    if (this.paintedHexes.size > 0) {
-    }
-
-    for (const [, data] of this.paintedHexes) {
-      this.scene.remove(data.mesh)
-      data.mesh.geometry.dispose()
-      ;(data.mesh.material as THREE.MeshStandardMaterial).dispose()
-    }
-    this.paintedHexes.clear()
-  }
-
-  /**
-   * Get all painted hex meshes (for raycasting)
-   */
-  getPaintedHexMeshes(): THREE.Mesh[] {
-    return Array.from(this.paintedHexes.values()).map(data => data.mesh)
-  }
-
-  /**
-   * Get all painted hex data (for persistence)
-   */
-  getPaintedHexes(): Array<{ q: number; r: number; color: number; height: number }> {
-    const result: Array<{ q: number; r: number; color: number; height: number }> = []
-    for (const [key, data] of this.paintedHexes) {
-      const [q, r] = key.split(',').map(Number)
-      result.push({ q, r, color: data.color, height: data.height })
-    }
-    return result
-  }
-
-  /**
-   * Load painted hexes (for persistence)
-   */
-  loadPaintedHexes(hexes: Array<{ q: number; r: number; color: number; height?: number }>): void {
-    this.clearAllPaintedHexes()
-    for (const hex of hexes) {
-      // Paint hex repeatedly to build up height
-      const targetHeight = hex.height ?? 0.5
-      const clicks = Math.round(targetHeight / 0.5)
-      for (let i = 0; i < clicks; i++) {
-        this.paintHex({ q: hex.q, r: hex.r }, hex.color)
-      }
-    }
-  }
-
-  /**
-   * Get all zone elevations (for persistence)
-   */
-  getZoneElevations(): Record<string, number> {
-    const result: Record<string, number> = {}
-    for (const [sessionId, zone] of this.zones) {
-      if (zone.elevation > 0) {
-        result[sessionId] = zone.elevation
-      }
-    }
-    return result
-  }
-
-  /**
-   * Load zone elevations (for persistence)
-   * Stores elevations for zones that don't exist yet - they'll be applied when created
-   */
-  loadZoneElevations(elevations: Record<string, number>): void {
-    for (const [sessionId, elevation] of Object.entries(elevations)) {
-      const zone = this.zones.get(sessionId)
-      if (zone) {
-        // Zone exists - apply elevation immediately (without animation)
-        this.setZoneElevation(sessionId, elevation)
-      } else {
-        // Zone doesn't exist yet - store for later
-        this.pendingZoneElevations.set(sessionId, elevation)
-      }
-    }
-  }
-
-  /**
-   * Set a zone's elevation directly (no animation, for loading saved state)
-   */
-  private setZoneElevation(sessionId: string, elevation: number): void {
-    const zone = this.zones.get(sessionId)
-    if (!zone) return
-
-    zone.elevation = elevation
-    zone.group.position.y = elevation
-    this.updateZoneEdgeLines(zone)
-    this.updateZoneSideMesh(zone)
-    this.notifyZoneElevationChange(sessionId, elevation)
-  }
-
   /**
    * Get current grid range (number of hex rings)
    */
@@ -3117,8 +2151,6 @@ export class WorkshopScene {
   dispose(): void {
     this.stop()
     this.clearAllContexts()
-    // Clean up painted hexes (draw mode)
-    this.clearAllPaintedHexes()
     // Clean up zone notifications (new system)
     this.zoneNotifications.dispose()
     // Clean up notifications (legacy)
