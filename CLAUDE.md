@@ -38,10 +38,10 @@ Node.js is only a development tool (Vite build, tests). It isn't needed to run.
 | `rust/vibecraft-hook` | The Claude Code hook (single binary, serde_json only) |
 | `rust/vibecraft-server` | HTTP + WebSocket server, events file watcher, `setup`/`uninstall` |
 | `rust/vibecraft-core` | Event log (dedupe, durations, history) and origin/path validation |
+| `rust/vibecraft-testkit` | Test/benchmark helpers: temp HOME, server and hook runners, HTTP and WebSocket clients |
 | `src/` | Frontend (TypeScript + Three.js), built by Vite into `dist/` |
 | `shared/` | Types and defaults shared by the frontend and Vite config |
-| `tests/` | Contract tests (hook, server) run with `node --test`, JSON fixtures, unit tests |
-| `bench/` | Hook latency and server throughput benchmarks |
+| `tests/unit/` | Frontend unit tests (`node --test`) |
 
 ## Rust Side
 
@@ -152,14 +152,19 @@ and the map.
 | Command | |
 |---|---|
 | `npm run build` | Frontend (`dist/`) and Rust release binaries |
-| `npm test` | Build, `cargo test`, then all `node --test` tests |
-| `npm run test:hook` / `test:server` / `test:unit` / `test:rust` | One suite |
+| `npm test` | Frontend build (type check), `cargo test`, then the frontend unit tests |
+| `npm run test:rust` / `test:unit` | One side |
 | `npm run dev` | Vite on :4002 with hot reload, proxying to the server on :4003 |
 | `npm run bench` | Hook latency, server startup/throughput/fan-out/memory |
 
-Contract tests run the binaries as black boxes in a temp `HOME`, so they never
-touch `~/.vibecraft`. `VIBECRAFT_HOOK_CMD` / `VIBECRAFT_SERVER_CMD` point them
-at other builds.
+`cargo test` (in `rust/`) runs the unit tests, the JSON fixtures
+(`vibecraft-core/tests/fixtures/`) and the contract tests
+(`vibecraft-hook/tests/contract.rs`, `vibecraft-server/tests/{events,http}.rs`).
+The contract tests run the binaries as black boxes in a temp `HOME`, so they
+never touch `~/.vibecraft`: the hook gets its input on a socket stdin, like
+Claude Code gives it, and the server is driven over HTTP and WebSocket
+(`vibecraft-testkit`). The benchmarks are the `hook_bench` and `server_bench`
+examples.
 
 ## Data
 

@@ -302,8 +302,16 @@ para criar e conduzir sessões pelo navegador saiu:
   o CLI `bin/cli.js` (o `setup`/`uninstall` agora é
   `vibecraft-server setup`, que preserva a ordem das chaves do
   `settings.json` e registra também o `PreCompact`), o hook em bash e os
-  scripts de instalação. Os testes de contrato rodam contra os binários
-  Rust; os fixtures JSON continuam nos testes do Rust.
+  scripts de instalação.
+- **Testes e benchmarks em Rust:** os 57 testes de contrato (hook e
+  servidor) e os benchmarks foram portados de `node --test` para
+  `cargo test` (`vibecraft-hook/tests/`, `vibecraft-server/tests/`) e
+  exemplos (`hook_bench`, `server_bench`), com os helpers no crate
+  `vibecraft-testkit`. Os fixtures JSON foram para
+  `vibecraft-core/tests/fixtures/`. Em TypeScript ficou só o teste do
+  semáforo, que testa código do frontend. Sem o atraso de criar processos a
+  partir do Node, o hook mede ~0,8–1,7 ms e arquivo → cliente ~0,05 ms
+  (antes, ~2,1 ms e ~1,2 ms, medidos a partir do Node).
 - **Analytics:** removido o script do Amplitude, que mandava cliques e
   formulários para a conta do projeto original.
 

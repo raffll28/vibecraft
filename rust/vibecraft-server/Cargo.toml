@@ -3,8 +3,11 @@ name = "vibecraft-server"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
-description = "vibecraft server (HTTP + WebSocket + events file), replacing server/index.ts"
+description = "vibecraft server: HTTP + WebSocket + events file watcher"
 
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order"] }
 vibecraft-core = { path = "../vibecraft-core" }
+
+[dev-dependencies]
+vibecraft-testkit = { path = "../vibecraft-testkit" }

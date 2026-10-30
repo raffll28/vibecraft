@@ -15,12 +15,10 @@
     "build": "npm run build:client && npm run build:rust",
     "build:client": "tsc && vite build",
     "build:rust": "cargo build --release --manifest-path rust/Cargo.toml",
-    "test": "npm run build && npm run test:rust && node --test 'tests/**/*.test.ts'",
+    "test": "npm run build:client && npm run test:rust && npm run test:unit",
     "test:unit": "node --test 'tests/unit/*.test.ts'",
-    "test:hook": "npm run build:rust && node --test 'tests/hook/*.test.ts'",
-    "test:server": "npm run build:rust && node --test 'tests/server/*.test.ts'",
     "test:rust": "cargo test --release --manifest-path rust/Cargo.toml",
-    "bench": "cargo build --release --examples --manifest-path rust/Cargo.toml && npm run build:rust && node bench/hook.bench.ts && node bench/server.bench.ts"
+    "bench": "npm run build:rust && cargo run --release --manifest-path rust/Cargo.toml --example hook_bench && cargo run --release --manifest-path rust/Cargo.toml --example server_bench"
   },
   "dependencies": {
     "three": "^0.170.0"
@@ -28,9 +26,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/three": "^0.170.0",
-    "@types/ws": "^8.5.13",
     "typescript": "^5.6.0",
-    "vite": "^6.0.0",
-    "ws": "^8.18.0"
+    "vite": "^6.0.0"
   }
 }

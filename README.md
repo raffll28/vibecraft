@@ -68,7 +68,7 @@ Environment variables of `vibecraft-server`, all optional:
 
 ```bash
 npm run dev       # frontend with hot reload on :4002 (proxies to the server on :4003)
-npm test          # build, Rust tests, then the contract tests
+npm test          # type check, Rust tests (unit + contract), frontend unit tests
 npm run bench     # hook latency and server throughput
 ```
 

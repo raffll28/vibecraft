@@ -133,6 +133,7 @@ name = "vibecraft-hook"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "vibecraft-testkit",
 ]
 
 [[package]]
@@ -141,6 +142,14 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "vibecraft-core",
+ "vibecraft-testkit",
+]
+
+[[package]]
+name = "vibecraft-testkit"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
