@@ -9,11 +9,11 @@
  *   addBookshelfDetails(stationGroup)
  */
 
-export { addBookshelfDetails } from './BookshelfStation'
-export { addTerminalDetails } from './TerminalStation'
-export { addAntennaDetails } from './AntennaStation'
-export { addPortalDetails } from './PortalStation'
-export { addScannerDetails } from './ScannerStation'
-export { addDeskDetails } from './DeskStation'
-export { addWorkbenchDetails } from './WorkbenchStation'
-export { addTaskboardDetails } from './TaskboardStation'
+export { addBookshelfDetails } from './BookshelfStation.ts'
+export { addTerminalDetails } from './TerminalStation.ts'
+export { addAntennaDetails } from './AntennaStation.ts'
+export { addPortalDetails } from './PortalStation.ts'
+export { addScannerDetails } from './ScannerStation.ts'
+export { addDeskDetails } from './DeskStation.ts'
+export { addWorkbenchDetails } from './WorkbenchStation.ts'
+export { addTaskboardDetails } from './TaskboardStation.ts'

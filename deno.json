@@ -1,0 +1,21 @@
+{
+  "tasks": {
+    "dev": "rm -rf dist && mkdir dist && cp public/logo.svg dist/ && deno bundle --platform browser --outdir dist --watch index.html",
+    "build": "deno task build:client && deno task build:rust",
+    "build:client": "deno task check && rm -rf dist && deno bundle -q --platform browser --minify --outdir dist index.html && cp public/logo.svg dist/",
+    "build:rust": "cargo build --release --manifest-path rust/Cargo.toml",
+    "check": "deno check src/ shared/ tests/",
+    "test": "deno task build:client && deno task test:rust && deno task test:unit",
+    "test:unit": "deno test tests/unit/",
+    "test:rust": "cargo test --release --manifest-path rust/Cargo.toml",
+    "bench": "deno task build:rust && cargo run --release --manifest-path rust/Cargo.toml --example hook_bench && cargo run --release --manifest-path rust/Cargo.toml --example server_bench"
+  },
+  "imports": {
+    "three": "npm:three@0.170.0",
+    "three/addons/": "npm:/three@0.170.0/examples/jsm/"
+  },
+  "compilerOptions": {
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "types": ["npm:@types/three@0.170.0"]
+  }
+}

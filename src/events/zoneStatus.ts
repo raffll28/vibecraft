@@ -8,7 +8,7 @@
  * Pure (no DOM or three.js), so it can be unit tested.
  */
 
-import type { ClaudeEvent, NotificationEvent, PreToolUseEvent } from '../../shared/types'
+import type { ClaudeEvent, NotificationEvent, PreToolUseEvent } from '../../shared/types.ts'
 
 export type ZoneStatus = 'idle' | 'working' | 'attention'
 

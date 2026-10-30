@@ -22,8 +22,8 @@ import type {
   PostToolUseEvent,
   StopEvent,
   UserPromptSubmitEvent,
-} from '../../shared/types'
-import type { WorkshopScene } from '../scene/WorkshopScene'
+} from '../../shared/types.ts'
+import type { WorkshopScene } from '../scene/WorkshopScene.ts'
 
 // ============================================================================
 // Types

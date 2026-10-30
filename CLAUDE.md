@@ -29,7 +29,8 @@ Claude Code → vibecraft-hook (Rust) → ~/.vibecraft/data/events.jsonl
    durations, keeps the last 1000 in memory, and broadcasts them over WebSocket.
 4. **The browser** creates a zone per session and animates it.
 
-Node.js is only a development tool (Vite build, tests). It isn't needed to run.
+Deno is only a development tool (type check, bundle, frontend tests). Running
+needs just the two Rust binaries and `dist/`. There is no Node.js or npm.
 
 ## Repository Layout
 
@@ -39,9 +40,10 @@ Node.js is only a development tool (Vite build, tests). It isn't needed to run.
 | `rust/vibecraft-server` | HTTP + WebSocket server, events file watcher, `setup`/`uninstall` |
 | `rust/vibecraft-core` | Event log (dedupe, durations, history) and origin/path validation |
 | `rust/vibecraft-testkit` | Test/benchmark helpers: temp HOME, server and hook runners, HTTP and WebSocket clients |
-| `src/` | Frontend (TypeScript + Three.js), built by Vite into `dist/` |
-| `shared/` | Types and defaults shared by the frontend and Vite config |
-| `tests/unit/` | Frontend unit tests (`node --test`) |
+| `src/` | Frontend (TypeScript + Three.js), bundled by `deno bundle` into `dist/` |
+| `shared/` | Types and defaults used by the frontend |
+| `tests/unit/` | Frontend unit tests (`deno test`) |
+| `deno.json` | Tasks, the `three` import (npm:, cached by Deno), compiler options |
 
 ## Rust Side
 
@@ -151,11 +153,15 @@ and the map.
 
 | Command | |
 |---|---|
-| `npm run build` | Frontend (`dist/`) and Rust release binaries |
-| `npm test` | Frontend build (type check), `cargo test`, then the frontend unit tests |
-| `npm run test:rust` / `test:unit` | One side |
-| `npm run dev` | Vite on :4002 with hot reload, proxying to the server on :4003 |
-| `npm run bench` | Hook latency, server startup/throughput/fan-out/memory |
+| `deno task build` | Frontend (`dist/`) and Rust release binaries |
+| `deno task check` | Type check the frontend and its tests |
+| `deno task test` | Frontend build (type check), `cargo test`, then the frontend unit tests |
+| `deno task test:rust` / `test:unit` | One side |
+| `deno task dev` | Rebuild `dist/` on every change; the server on :4003 serves it (reload the page) |
+| `deno task bench` | Hook latency, server startup/throughput/fan-out/memory |
+
+Relative imports carry their `.ts` extension (Deno resolves files exactly).
+`deno.lock` pins `three` and `@types/three`.
 
 `cargo test` (in `rust/`) runs the unit tests, the JSON fixtures
 (`vibecraft-core/tests/fixtures/`) and the contract tests

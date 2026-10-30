@@ -5,9 +5,9 @@
  */
 
 import * as THREE from 'three'
-import type { StationType } from '../../shared/types'
-import type { WorkshopScene, Station } from '../scene/WorkshopScene'
-import type { ICharacter, CharacterOptions, CharacterState } from './ICharacter'
+import type { StationType } from '../../shared/types.ts'
+import type { WorkshopScene, Station } from '../scene/WorkshopScene.ts'
+import type { ICharacter, CharacterOptions, CharacterState } from './ICharacter.ts'
 
 // Re-export for backwards compatibility
 export type ClaudeState = CharacterState

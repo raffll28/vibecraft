@@ -6,7 +6,7 @@
  */
 
 import * as THREE from 'three'
-import type { StationType } from '../../shared/types'
+import type { StationType } from '../../shared/types.ts'
 
 export type CharacterState = 'idle' | 'walking' | 'working' | 'thinking'
 

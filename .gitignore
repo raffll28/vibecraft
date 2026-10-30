@@ -1,6 +1,3 @@
-# Dependencies
-node_modules/
-
 # Claude Code local settings
 .claude/
 
@@ -26,7 +23,6 @@ Thumbs.db
 
 # Logs
 *.log
-npm-debug.log*
 
 # TypeScript cache
 *.tsbuildinfo

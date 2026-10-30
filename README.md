@@ -25,12 +25,12 @@ server streams them to the page, and nothing is sent anywhere else.
 
 - Linux (macOS should work but is untested)
 - [Rust](https://rustup.rs) to build the hook and the server
-- Node.js only to build the frontend and run the tests
+- [Deno](https://deno.com) to build the frontend (no Node.js or npm)
 
 ## Setup
 
 ```bash
-npm install && npm run build                    # frontend (dist/) + Rust binaries
+deno task build                                 # frontend (dist/) + Rust binaries
 rust/target/release/vibecraft-server setup      # install the hook into ~/.claude/settings.json
 rust/target/release/vibecraft-server            # start the server
 ```
@@ -67,9 +67,9 @@ Environment variables of `vibecraft-server`, all optional:
 ## Development
 
 ```bash
-npm run dev       # frontend with hot reload on :4002 (proxies to the server on :4003)
-npm test          # type check, Rust tests (unit + contract), frontend unit tests
-npm run bench     # hook latency and server throughput
+deno task dev     # rebuild dist/ on every change (reload the page served on :4003)
+deno task test    # type check, Rust tests (unit + contract), frontend unit tests
+deno task bench   # hook latency and server throughput
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the architecture and

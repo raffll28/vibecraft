@@ -29,12 +29,10 @@ bateria de testes, que nada quebrou.
 
 | Comando | O que faz |
 |---|---|
-| `npm test` | Build + `cargo test` + todos os testes de contrato e unitários |
-| `npm run test:hook` | Contrato do hook (contra o binário Rust) |
-| `npm run test:server` | Contrato do servidor (HTTP + WebSocket + arquivo de eventos) |
-| `npm run test:unit` | Regra do semáforo das zonas |
-| `npm run test:rust` | Testes dos crates Rust (`cargo test`) |
-| `npm run bench` | Benchmarks do hook e do servidor |
+| `deno task test` | Checagem de tipos + build do frontend, `cargo test`, testes do frontend |
+| `deno task test:rust` | Testes dos crates Rust, incluindo os contratos do hook e do servidor |
+| `deno task test:unit` | Regra do semáforo das zonas |
+| `deno task bench` | Benchmarks do hook e do servidor |
 
 Os testes rodam com `HOME` temporário: nunca tocam o `~/.vibecraft/` real.
 
@@ -312,6 +310,11 @@ para criar e conduzir sessões pelo navegador saiu:
   semáforo, que testa código do frontend. Sem o atraso de criar processos a
   partir do Node, o hook mede ~0,8–1,7 ms e arquivo → cliente ~0,05 ms
   (antes, ~2,1 ms e ~1,2 ms, medidos a partir do Node).
+- **Sem Node também no desenvolvimento:** Vite, `tsc`, `node --test`,
+  `package.json` e `node_modules` (81 MiB) foram trocados pelo Deno:
+  `deno bundle` (esbuild por baixo) gera o `dist/`, `deno check` checa os
+  tipos e `deno test` roda o teste do semáforo. O `three` vem do registro npm
+  para o cache do Deno, fixado no `deno.lock`. O bundle continua com 627 KB.
 - **Analytics:** removido o script do Amplitude, que mandava cliques e
   formulários para a conta do projeto original.
 

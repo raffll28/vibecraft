@@ -5,9 +5,9 @@
  * Claude reacts to what just happened with relevant idle animations.
  */
 
-import { eventBus } from '../EventBus'
-import type { PostToolUseEvent } from '../../../shared/types'
-import type { BashToolInput } from '../../../shared/types'
+import { eventBus } from '../EventBus.ts'
+import type { PostToolUseEvent } from '../../../shared/types.ts'
+import type { BashToolInput } from '../../../shared/types.ts'
 
 // Command patterns for detecting specific bash operations
 const PATTERNS = {

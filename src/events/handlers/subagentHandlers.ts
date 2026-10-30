@@ -5,8 +5,8 @@
  * when Task tools start and complete.
  */
 
-import { eventBus } from '../EventBus'
-import type { PreToolUseEvent, PostToolUseEvent } from '../../../shared/types'
+import { eventBus } from '../EventBus.ts'
+import type { PreToolUseEvent, PostToolUseEvent } from '../../../shared/types.ts'
 
 /**
  * Register subagent-related event handlers

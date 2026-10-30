@@ -9,23 +9,20 @@
 
 import './styles/index.css'
 import * as THREE from 'three'
-import { WorkshopScene, type Zone, type CameraMode } from './scene/WorkshopScene'
-import { Claude } from './entities/ClaudeMon'      // Robot buddy character
-import { SubagentManager } from './entities/SubagentManager'
-import { EventClient } from './events/EventClient'
-import { eventBus, type EventContext, type EventType } from './events/EventBus'
-import { registerAllHandlers } from './events/handlers'
-import type { ClaudeEvent } from '../shared/types'
-import { DEFAULTS } from '../shared/defaults'
-import { ContextMenu, type ContextMenuContext } from './ui/ContextMenu'
-import { setupKeyboardShortcuts } from './ui/KeyboardShortcuts'
+import { WorkshopScene, type Zone, type CameraMode } from './scene/WorkshopScene.ts'
+import { Claude } from './entities/ClaudeMon.ts'      // Robot buddy character
+import { SubagentManager } from './entities/SubagentManager.ts'
+import { EventClient } from './events/EventClient.ts'
+import { eventBus, type EventContext, type EventType } from './events/EventBus.ts'
+import { registerAllHandlers } from './events/handlers/index.ts'
+import type { ClaudeEvent } from '../shared/types.ts'
+import { DEFAULTS } from '../shared/defaults.ts'
+import { ContextMenu, type ContextMenuContext } from './ui/ContextMenu.ts'
+import { setupKeyboardShortcuts } from './ui/KeyboardShortcuts.ts'
 
 // ============================================================================
 // Configuration
 // ============================================================================
-
-// Injected by Vite at build time from shared/defaults.ts
-declare const __VIBECRAFT_DEFAULT_PORT__: number
 
 // Port configuration: URL param > localStorage > default from shared/defaults.ts
 function getAgentPort(): number {
@@ -36,19 +33,13 @@ function getAgentPort(): number {
   const storedPort = localStorage.getItem('vibecraft-agent-port')
   if (storedPort) return parseInt(storedPort, 10)
 
-  return __VIBECRAFT_DEFAULT_PORT__
+  return DEFAULTS.SERVER_PORT
 }
 
 const AGENT_PORT = getAgentPort()
 
-// In dev, Vite proxies /ws and /api to the server
-const WS_URL = import.meta.env.DEV
-  ? `ws://${window.location.host}/ws`
-  : `ws://localhost:${AGENT_PORT}`
-
-const API_URL = import.meta.env.DEV
-  ? '/api'
-  : `http://localhost:${AGENT_PORT}`
+const WS_URL = `ws://localhost:${AGENT_PORT}`
+const API_URL = `http://localhost:${AGENT_PORT}`
 
 // ============================================================================
 // State
@@ -687,14 +678,12 @@ function init() {
     }
   })
 
-  // Show not-connected overlay after timeout if never connected (production only)
-  if (!import.meta.env.DEV) {
-    setTimeout(() => {
-      if (!hasConnected) {
-        document.getElementById('not-connected-overlay')?.classList.add('visible')
-      }
-    }, 3000)  // 3 seconds to connect before showing overlay
-  }
+  // Show not-connected overlay after timeout if never connected
+  setTimeout(() => {
+    if (!hasConnected) {
+      document.getElementById('not-connected-overlay')?.classList.add('visible')
+    }
+  }, 3000)  // 3 seconds to connect before showing overlay
 
   state.client.onEvent(handleEvent)
   state.client.onHistory((events) => {

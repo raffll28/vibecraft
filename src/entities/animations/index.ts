@@ -33,10 +33,10 @@
  */
 
 // Types and utilities
-export * from './AnimationTypes'
+export * from './AnimationTypes.ts'
 
 // Idle behaviors
-export { IDLE_BEHAVIORS, IdleBehaviorManager } from './IdleBehaviors'
+export { IDLE_BEHAVIORS, IdleBehaviorManager } from './IdleBehaviors.ts'
 
 // Working behaviors
-export { STATION_ANIMATIONS, WorkingBehaviorManager } from './WorkingBehaviors'
+export { STATION_ANIMATIONS, WorkingBehaviorManager } from './WorkingBehaviors.ts'

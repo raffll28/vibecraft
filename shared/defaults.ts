@@ -15,9 +15,6 @@ export const DEFAULTS = {
    */
   SERVER_HOST: '127.0.0.1',
 
-  /** Vite dev server port */
-  CLIENT_PORT: 4002,
-
   /** Events file written by the hook (~ is expanded by the server) */
   EVENTS_FILE: '~/.vibecraft/data/events.jsonl',
 

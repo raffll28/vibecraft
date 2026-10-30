@@ -5,14 +5,14 @@
  * Uses ZoneNotifications system for tool-specific styling.
  */
 
-import { eventBus } from '../EventBus'
+import { eventBus } from '../EventBus.ts'
 import {
   formatFileChange,
   formatCommandResult,
   formatSearchResult,
-} from '../../scene/ZoneNotifications'
-import type { PostToolUseEvent } from '../../../shared/types'
-import { getStationForTool } from '../../../shared/types'
+} from '../../scene/ZoneNotifications.ts'
+import type { PostToolUseEvent } from '../../../shared/types.ts'
+import { getStationForTool } from '../../../shared/types.ts'
 
 /**
  * Register notification-related event handlers

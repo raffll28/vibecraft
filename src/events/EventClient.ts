@@ -3,7 +3,7 @@
  * (receive-only: the server pushes events and history)
  */
 
-import type { ClaudeEvent, ServerMessage } from '../../shared/types'
+import type { ClaudeEvent, ServerMessage } from '../../shared/types.ts'
 
 export type EventHandler = (event: ClaudeEvent) => void
 export type HistoryHandler = (events: ClaudeEvent[]) => void

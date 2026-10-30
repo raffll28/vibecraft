@@ -9,7 +9,7 @@
  * - Alt+D: Dev panel toggle
  */
 
-import type { WorkshopScene } from '../scene/WorkshopScene'
+import type { WorkshopScene } from '../scene/WorkshopScene.ts'
 
 /** Zone shortcut keys, in zone order */
 export const ZONE_KEYBINDS = ['1', '2', '3', '4', '5', '6', '7', '8', '9']

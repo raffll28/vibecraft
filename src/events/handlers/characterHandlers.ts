@@ -5,10 +5,10 @@
  * Moves character to appropriate stations and sets context labels.
  */
 
-import { eventBus } from '../EventBus'
-import { getToolContext } from '../../utils/ToolUtils'
-import { getStationForTool } from '../../../shared/types'
-import type { PreToolUseEvent, PostToolUseEvent, StopEvent, UserPromptSubmitEvent } from '../../../shared/types'
+import { eventBus } from '../EventBus.ts'
+import { getToolContext } from '../../utils/ToolUtils.ts'
+import { getStationForTool } from '../../../shared/types.ts'
+import type { PreToolUseEvent, PostToolUseEvent, StopEvent, UserPromptSubmitEvent } from '../../../shared/types.ts'
 
 /**
  * Register character movement event handlers

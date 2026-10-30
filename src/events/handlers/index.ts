@@ -4,11 +4,11 @@
  * Import and call registerAllHandlers() to set up EventBus handlers.
  */
 
-import { registerNotificationHandlers } from './notificationHandlers'
-import { registerCharacterHandlers } from './characterHandlers'
-import { registerSubagentHandlers } from './subagentHandlers'
-import { registerZoneHandlers } from './zoneHandlers'
-import { registerAnimationHandlers } from './animationHandlers'
+import { registerNotificationHandlers } from './notificationHandlers.ts'
+import { registerCharacterHandlers } from './characterHandlers.ts'
+import { registerSubagentHandlers } from './subagentHandlers.ts'
+import { registerZoneHandlers } from './zoneHandlers.ts'
+import { registerAnimationHandlers } from './animationHandlers.ts'
 
 /**
  * Register all EventBus handlers

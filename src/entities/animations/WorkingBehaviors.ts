@@ -14,10 +14,10 @@ import {
   type WorkingBehavior,
   easeInOut,
   easeOut,
-} from './AnimationTypes'
+} from './AnimationTypes.ts'
 
 // Re-export for convenience
-export type { WorkingBehavior } from './AnimationTypes'
+export type { WorkingBehavior } from './AnimationTypes.ts'
 
 export type StationAnimations = {
   [station: string]: WorkingBehavior

@@ -7,11 +7,11 @@
 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import type { StationType } from '../../shared/types'
-import { HexGrid } from '../utils/HexGrid'
-import { ZoneNotifications, type NotificationOptions } from './ZoneNotifications'
-import { StationPanels } from './StationPanels'
-import type { ZoneStatus } from '../events/zoneStatus'
+import type { StationType } from '../../shared/types.ts'
+import { HexGrid } from '../utils/HexGrid.ts'
+import { ZoneNotifications, type NotificationOptions } from './ZoneNotifications.ts'
+import { StationPanels } from './StationPanels.ts'
+import type { ZoneStatus } from '../events/zoneStatus.ts'
 import {
   addBookshelfDetails,
   addTerminalDetails,
@@ -21,7 +21,7 @@ import {
   addDeskDetails,
   addWorkbenchDetails,
   addTaskboardDetails,
-} from './stations'
+} from './stations/index.ts'
 
 export interface Station {
   type: StationType

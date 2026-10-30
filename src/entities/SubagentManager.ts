@@ -4,8 +4,8 @@
  * Tracks Task tool spawns and creates mini-Claude instances for each active subagent
  */
 
-import type { WorkshopScene } from '../scene/WorkshopScene'
-import { Claude, type ClaudeOptions } from './Claude'
+import type { WorkshopScene } from '../scene/WorkshopScene.ts'
+import { Claude, type ClaudeOptions } from './Claude.ts'
 
 export interface Subagent {
   id: string

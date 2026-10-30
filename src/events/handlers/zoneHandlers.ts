@@ -5,9 +5,9 @@
  * session's events. Red zones also pulse until the user acts.
  */
 
-import { eventBus, type EventType } from '../EventBus'
-import { zoneStatusForEvent } from '../zoneStatus'
-import type { ClaudeEvent } from '../../../shared/types'
+import { eventBus, type EventType } from '../EventBus.ts'
+import { zoneStatusForEvent } from '../zoneStatus.ts'
+import type { ClaudeEvent } from '../../../shared/types.ts'
 
 const STATUS_EVENTS: EventType[] = [
   'pre_tool_use',

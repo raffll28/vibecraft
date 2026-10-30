@@ -11,7 +11,7 @@
  */
 
 // Re-export shared types for convenience
-export type { CharacterParts, IdleBehavior } from './AnimationTypes'
+export type { CharacterParts, IdleBehavior } from './AnimationTypes.ts'
 
 import {
   type CharacterParts,
@@ -20,7 +20,7 @@ import {
   easeOut,
   easeIn,
   bounce,
-} from './AnimationTypes'
+} from './AnimationTypes.ts'
 
 // ============================================================================
 // Idle Behaviors - Add new behaviors here!
